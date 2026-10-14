@@ -1,0 +1,33 @@
+import {Worker} from 'near-workspaces';
+import {readFile,writeFile} from 'node:fs/promises';
+import {createHash} from 'node:crypto';
+import assert from 'node:assert/strict';
+const worker=await Worker.init();
+try {
+ const root=worker.rootAccount;
+ const id=`launch.${root.accountId}`;
+ const supply='1000000000000000000000000000';
+ const metadata={spec:'ft-1.0.0',name:'Sandbox Launch',symbol:'TEST',decimals:18,icon:null,reference:null,reference_hash:null};
+ const wasm=await readFile(new URL('../public/contracts/fungible-token.wasm',import.meta.url));
+ const result=await root.batch(id).createAccount().transfer(3110000000000000000000000n).deployContract(wasm).functionCall('new',{owner_id:root.accountId,total_supply:supply,metadata},{gas:200000000000000n,attachedDeposit:0n}).transact();
+ assert.equal(result.succeeded,true,JSON.stringify(result.failures));
+ const token=root.getAccount(id);
+ assert.equal(await token.view('ft_total_supply',{}),supply);
+ assert.deepEqual(await token.view('ft_metadata',{}),metadata);
+ assert.equal(await token.view('ft_balance_of',{account_id:root.accountId}),supply);
+ const keys=await token.viewAccessKeys(id);
+ assert.equal(keys.keys.length,0,'Deployment must create no administrative keys');
+ const bob=await root.createSubAccount('recipient',{initialBalance:10000000000000000000000000n});
+ await bob.call(token,'storage_deposit',{account_id:bob.accountId,registration_only:true},{attachedDeposit:100000000000000000000000n});
+ await root.call(token,'ft_transfer',{receiver_id:bob.accountId,amount:'1000000000000000000'},{attachedDeposit:1n});
+ assert.equal(await token.view('ft_balance_of',{account_id:bob.accountId}),'1000000000000000000');
+ assert.equal(await token.view('ft_total_supply',{}),supply);
+ const manifestPath=new URL('../public/contracts/manifest.json',import.meta.url);
+ const manifest=JSON.parse(await readFile(manifestPath,'utf8'));
+ assert.equal(createHash('sha256').update(wasm).digest('hex'),manifest.sha256);
+ manifest.runtimeVerified=true;
+ manifest.runtimeVerification={network:'local-sandbox',engine:'near-sandbox 2.6.2',checks:['atomic-deploy-initialize','no-administrative-keys','owner-supply','registered-transfer','unchanged-total-supply']};
+ await writeFile(manifestPath,JSON.stringify(manifest,null,2)+'\n');
+ await writeFile(new URL('../lib/contract-manifest.js',import.meta.url),'export default '+JSON.stringify(manifest,null,2)+';\n');
+ console.log(JSON.stringify({network:'local-sandbox',deployed:true,initialized:true,noAdministrativeKeys:true,ownerSupply:true,registeredTransfer:true,totalSupplyUnchanged:true,hash:result.transactionReceipt.hash}));
+} finally {await worker.tearDown();}

@@ -2,5 +2,6 @@
   "source": "https://github.com/near-examples/FT",
   "commit": "7721a49423466bcd1104369dcea50229e64282fd",
   "license": "MIT OR Apache-2.0",
-  "changes": "No contract logic modifications; local build uses the NEAR env import linker flag."
+  "changes": "No contract logic modifications. Rust 1.86.0 and cargo-near 0.22.0 pinned; required wasm-opt postprocessing enabled. Runtime validation must pass on local NEAR sandbox before activation.",
+  "runtimeStatus": "Passed local NEAR sandbox atomic deployment, initialization, access-key check, supply checks and registered token transfer."
 }

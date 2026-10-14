@@ -20,6 +20,6 @@ The public directory contains NEAR-network assets supported by 1Click. Public sh
 
 ## Verify and deploy
 
-npm run lint; npm run test; npm run build. Vercel: Vite preset, dist output. Node serverless api/catalog and api/near are included. Local dev and preview also mount these APIs. VITE_NEAR_NETWORK defaults to mainnet; set it to testnet at build time for a testnet deployment. Never place a private key in a browser environment variable.
+`npm run lint`, `npm run test`, `npm run build`. To rebuild the contract: install Rust 1.86.0 with its wasm32 target, then `npm run contract:build` followed by `npm run contract:test`. The build uses pinned cargo-near with its required wasm-opt postprocessing. Every rebuild closes deployment configuration until the local NEAR runtime test passes; the test deploys and initializes in one transaction, verifies no administrative keys and the owner supply, registers a recipient, and transfers tokens. These are local sandbox funds, not a mainnet wallet acceptance test. Vercel: Vite preset, dist output. Node serverless api/catalog and api/near are included. Local dev and preview also mount these APIs. VITE_NEAR_NETWORK defaults to mainnet; set it to testnet at build time for a testnet deployment. Never place a private key in a browser environment variable.
 
-The default production Vercel project is near-intent-launchpad. The current account deployment quota must be resolved before a new public build can publish.
+The default production Vercel project is near-intent-launchpad. Vercel Git status must report a successful deployment for the current main commit before source changes can be described as published. Other projects on this account may still be blocked by the daily deployment quota.
