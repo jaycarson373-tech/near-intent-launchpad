@@ -1,28 +1,15 @@
-# Intent Launch
+# Intent Pad
 
-An independent NEAR token-sale launchpad concept built around NEAR Intents. Creators configure a proposed sale; participants should be able to choose supported funding assets, inspect solver quotes, and review sale terms before signing.
+NEAR-paired launch workspace. Prepare a local project brief and complete creation on StonkFun. The venue's NEAR quote token is on Solana; it is not a native NEAR token launch. Cross-chain routing is separately supported through NEAR Intents.
 
-## Current status
+## Working
 
-- The UI is responsive and the launch-draft modal works locally.
-- The asset directory is read live from NEAR Intents' public token endpoint (`GET /api/tokens`).
-- The sale creation modal saves only to the current page state (refreshing clears it); it does not deploy a token or sale contract.
-- Wallet signing, quote selection, sale settlement, refunds, token claims, and backend persistence are not implemented. No money moves.
+Live 1Click asset directory, server-side StonkFun NEAR market and pair-availability checks, persistent browser launch briefs, JSON export, and external venue handoff after the NEAR pair is confirmed launchable. Saving a brief does not mint a token; the venue does not automatically import it.
 
-## Run
+## Token economy
 
-```sh
-npm install
-npm run dev
-npm run build
-```
+100% of Intent Pad's token creator fees are designated for buyback and burn. The previous holder airdrop split is removed. Fee collection and burns require a live mint, wallet and configured worker; they are not active in this release. No promise is made about fees from third-party token launches.
 
-## Architecture before mainnet
+## Deployment
 
-1. Choose or implement a NEP-141 token and audited fixed-price/auction sale contract.
-2. Define cap, allocation, vesting, refund, close-time, and unsold-token rules on chain.
-3. Add wallet connection and wire the official NEAR Intents quote/sign/publish/status flow. Never collect seed phrases or private keys.
-4. Persist launches and settlement receipts in a backend; index sale state from chain.
-5. Add test coverage for allocation limits, partial fills, refunds, and duplicate claim prevention before mainnet.
-
-The current layout is a product preview and must not be presented as a live sale. NEAR Intents integration reference: https://docs.near.org/tutorials/intents/introduction
+Vercel Vite preset, build `npm run build`, output `dist`; `/api/catalog` is a Node serverless endpoint. `npm run lint` and `npm run build` validate the frontend. No secrets are needed for the public market directory.
