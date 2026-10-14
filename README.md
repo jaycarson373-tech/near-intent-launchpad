@@ -6,7 +6,7 @@ An independent NEAR token-sale launchpad concept built around NEAR Intents. Crea
 
 - The UI is responsive and the launch-draft modal works locally.
 - The asset directory is read live from NEAR Intents' public token endpoint (`GET /api/tokens`).
-- The sale creation modal saves only to the current browser session state; it does not deploy a token or sale contract.
+- The sale creation modal saves only to the current page state (refreshing clears it); it does not deploy a token or sale contract.
 - Wallet signing, quote selection, sale settlement, refunds, token claims, and backend persistence are not implemented. No money moves.
 
 ## Run
