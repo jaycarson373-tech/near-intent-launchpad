@@ -10,7 +10,8 @@
     "preview": "vite preview",
     "test": "node --experimental-strip-types --test tests/*.test.js tests/*.test.ts",
     "contract:build": "node scripts/build-contract.mjs",
-    "contract:test": "node scripts/test-contract-sandbox.mjs"
+    "contract:test": "node scripts/test-contract-sandbox.mjs",
+    "start": "node server.mjs"
   },
   "dependencies": {
     "@near-wallet-selector/core": "^10.1.4",
@@ -40,5 +41,8 @@
   },
   "optionalDependencies": {
     "cargo-near": "0.22.0"
+  },
+  "engines": {
+    "node": "22.x"
   }
 }
