@@ -2,7 +2,7 @@ import {Worker} from 'near-workspaces';
 import {readFile,writeFile} from 'node:fs/promises';
 import {createHash} from 'node:crypto';
 import assert from 'node:assert/strict';
-const worker=await Worker.init();
+const worker=await Worker.init({rm:true});
 try {
  const root=worker.rootAccount;
  const id=`launch.${root.accountId}`;
