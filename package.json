@@ -7,11 +7,20 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "node --experimental-strip-types --test tests/*.test.js tests/*.test.ts",
+    "contract:build": "node scripts/build-contract.mjs"
   },
   "dependencies": {
+    "@near-wallet-selector/core": "^10.1.4",
+    "@near-wallet-selector/meteor-wallet": "^10.1.4",
+    "@near-wallet-selector/modal-ui": "^10.1.4",
+    "@near-wallet-selector/my-near-wallet": "^10.1.4",
+    "buffer": "^6.0.3",
+    "process": "^0.11.10",
     "react": "^19.2.8",
-    "react-dom": "^19.2.8"
+    "react-dom": "^19.2.8",
+    "util": "^0.12.5"
   },
   "devDependencies": {
     "@types/node": "^24.13.3",

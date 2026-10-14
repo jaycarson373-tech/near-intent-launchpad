@@ -1,15 +1,25 @@
 # Intent Pad
 
-NEAR-paired launch workspace. Prepare a local project brief and complete creation on StonkFun. The venue's NEAR quote token is on Solana; it is not a native NEAR token launch. Cross-chain routing is separately supported through NEAR Intents.
+Native NEAR token launchpad. This project does not launch Solana tokens and does not hand token creation to StonkFun.
 
-## Working
+## Native launch flow
 
-Live 1Click asset directory, server-side StonkFun NEAR market and pair-availability checks, persistent browser launch briefs, JSON export, and external venue handoff after the NEAR pair is confirmed launchable. Saving a brief does not mint a token; the venue does not automatically import it.
+Connect a named NEAR wallet, configure name/symbol/supply/decimals and a child-account prefix, review account/storage funding, then approve the transaction in the wallet. The transaction creates the child account, funds it, deploys the pinned standard NEP-141 contract and initializes the supply to the approving owner. No access keys are added to the token account. This makes the deployed contract non-upgradeable through an admin key.
 
-## Token economy
+The bundled WASM was built from NEAR's official FT example at the commit in contracts/PROVENANCE.json. Its SHA-256 and NEAR code hash are in public/contracts/manifest.json. The browser verifies the bytes before asking the wallet to sign. Confirmed launches require a finalized, successful owner transaction plus exact code, metadata and supply checks. Pending requests and drafts are never recorded as completed launches.
 
-100% of Intent Pad's token creator fees are designated for buyback and burn. The previous holder airdrop split is removed. Fee collection and burns require a live mint, wallet and configured worker; they are not active in this release. No promise is made about fees from third-party token launches.
+The contract account is funded for code/state storage plus a buffer; wallet gas is additional. Intent Pad charges no platform fee for native deployment in this version. It does not automatically create a liquidity pool or a new NEAR Intents route. A funded wallet deployment still requires integration verification before describing the product as launch-ready.
 
-## Deployment
+## Data and discovery
 
-Vercel Vite preset, build `npm run build`, output `dist`; `/api/catalog` is a Node serverless endpoint. `npm run lint` and `npm run build` validate the frontend. No secrets are needed for the public market directory.
+The public directory contains NEAR-network assets supported by 1Click. Public share links inspect a native NEAR token contract directly. Your launch list is stored on your device; it is not a global indexed registry. Native RPC endpoints are read-only and accept a fixed set of actions.
+
+## Intent Pad token economy
+
+100% of Intent Pad token creator fees are designated for buyback and burn. This parent-token economic mechanism is separate from native token creation and is not active until its mint/collector/worker are configured. No simulated burn receipts are published.
+
+## Verify and deploy
+
+npm run lint; npm run test; npm run build. Vercel: Vite preset, dist output. Node serverless api/catalog and api/near are included. Local dev and preview also mount these APIs. VITE_NEAR_NETWORK defaults to mainnet; set it to testnet at build time for a testnet deployment. Never place a private key in a browser environment variable.
+
+The default production Vercel project is near-intent-launchpad. The current account deployment quota must be resolved before a new public build can publish.

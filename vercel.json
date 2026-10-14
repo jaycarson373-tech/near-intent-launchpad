@@ -1,1 +1,10 @@
-{"framework":"vite","buildCommand":"npm run build","outputDirectory":"dist"}
+{
+  "framework": "vite",
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
+  "functions": {
+    "api/near.js": {
+      "includeFiles": "public/contracts/manifest.json"
+    }
+  }
+}
