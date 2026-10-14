@@ -1,6 +1,6 @@
 # Intent Pad
 
-Native NEAR token launchpad. This project does not launch Solana tokens and does not hand token creation to StonkFun.
+Native NEAR token launchpad.
 
 ## Native launch flow
 
