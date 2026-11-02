@@ -34,7 +34,8 @@ export function operatorKey(secret, expected) {
       bytes = Uint8Array.from(a);
     } else bytes = bs58.decode(input);
     if (bytes.length !== 64) throw Error();
-    const pair = Keypair.fromSecretKey(bytes);
+    // Copy first: web3.js keeps a reference to the array, so zeroing `bytes` would wipe the signing key.
+    const pair = Keypair.fromSecretKey(Uint8Array.from(bytes));
     bytes.fill(0);
     if (pair.publicKey.toBase58() !== expected) throw Error();
     return pair;
