@@ -224,3 +224,26 @@ function discriminatorInto(bytes, name) {
     .digest()
     .copy(bytes, 0, 0, 8);
 }
+test("a venue with an intermediary route is skipped, and exhausting venues gives the user-facing message", async () => {
+  const { solConversion } = await import("../lib/sol-dev-buy.mjs");
+  const BONK = "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263";
+  const viaOther = (label) => ({
+    ...base,
+    routePlan: [
+      { percent: 100, swapInfo: { label, inputMint: SOL, outputMint: BONK, inAmount: base.inAmount, outAmount: "5" } },
+      { percent: 100, swapInfo: { label, inputMint: BONK, outputMint: NEAR, inAmount: "5", outAmount: base.outAmount } },
+    ],
+  });
+  const asked = [];
+  const transport = async (u) => {
+    const venue = new URL(u).searchParams.get("dexes");
+    asked.push(venue);
+    if (venue === "Raydium CP") return { status: 400, ok: false, json: async () => ({ error: "No routes found" }) };
+    return { status: 200, ok: true, json: async () => viaOther(venue) };
+  };
+  await assert.rejects(
+    solConversion(Keypair.generate().publicKey.toBase58(), 10000000n, { transport }),
+    (e) => e.safe === true && e.status === 503 && /No bounded direct SOL-to-NEAR route/.test(e.message),
+  );
+  assert.deepEqual(asked, ["Raydium CLMM", "Raydium CP", "Meteora DLMM"]);
+});
