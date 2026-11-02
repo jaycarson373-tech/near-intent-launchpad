@@ -193,12 +193,15 @@ export async function prepare(raw) {
     fail(
       "This mint already exists. Recover the saved launch before preparing another.",
     );
-  let conversion=null,tracked=[];
+  let funding=null;
   if(input.devBuySolRaw>0n){
-    conversion=await solConversion(creator.toBase58(),input.devBuySolRaw,{mint:mint.toBase58(),treasury:rewards.treasury});
-    input.devBuyRaw=BigInt(conversion.minimumRaw);
-    tracked=await walletTokenState(rpc,creator.toBase58());
-    if(tracked.some(r=>r.state.mint.toBase58()==='So11111111111111111111111111111111111111112'&&r.state.amount>0n))fail('Unwrap existing wrapped SOL before using a SOL initial buy.');
+    if(!raw.fundingId)return prepareConversion(input,c,rewards);
+    if(!idOk(raw.fundingId))fail('Invalid saved SOL conversion.');
+    funding=await read('funding/'+raw.fundingId+'.json');
+    if(!funding||funding.creator!==creator.toBase58()||funding.mint!==mint.toBase58()||funding.devBuySolRaw!==String(input.devBuySolRaw)||funding.feeTreasury!==rewards.treasury)fail('The saved SOL conversion belongs to another wallet, mint, amount or treasury. No second conversion was requested.');
+    input.devBuyRaw=BigInt(funding.devBuyRaw);
+    const ata=getAssociatedTokenAddressSync(new PublicKey(NEAR),creator),info=await rpc.getAccountInfo(ata,'finalized');
+    if(!info||unpackAccount(ata,info,TOKEN_PROGRAM_ID).amount<input.devBuyRaw)fail('The converted NEAR is no longer available in this wallet. No second SOL conversion was requested.');
   }
   const id = randomUUID(),
     site = origin(),
@@ -221,11 +224,11 @@ export async function prepare(raw) {
     devBuySolRaw: input.devBuySolRaw.toString(),
     quoteMint: NEAR,
     feeTreasury:rewards.treasury,rewardPolicyHash:POLICY_HASH,
+    phase:"launch",fundingId:funding?.id||null,fundingSignature:funding?.signature||null,
     createdAt: new Date().toISOString(),
     expiresAt: Date.now() + 90000,
   };
   let ixs = await instructions({ ...input, uri,feeTreasury:record.feeTreasury }, c);
-  if(conversion)ixs.unshift(...conversion.instructions);
   ixs.push(
     new TransactionInstruction({
       programId: new PublicKey("MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr"),
@@ -257,7 +260,6 @@ export async function prepare(raw) {
     commitment: "confirmed",
     minContextSlot: latest.context.slot,
   });
-  const trackedAddresses=[...new Set([...tracked.map(r=>r.address),getAssociatedTokenAddressSync(new PublicKey(NEAR),creator).toBase58(),getAssociatedTokenAddressSync(mint,creator,false,TOKEN_2022_PROGRAM_ID).toBase58()])];
   const sim = await rpc.simulateTransaction(tx, {
     sigVerify: false,
     commitment: "confirmed",
@@ -268,7 +270,6 @@ export async function prepare(raw) {
         creator.toBase58(),
         pump.feeSharingConfigPda(mint).toBase58(),
         pump.bondingCurvePda(mint).toBase58(),
-        ...trackedAddresses,
       ],
     },
   });
@@ -283,12 +284,6 @@ export async function prepare(raw) {
     fail(
       "Creation simulation did not pass. Check SOL for the initial buy, rent and network fees. No wallet approval was requested.",
     );
-  if(conversion){
-    verifyConversionEffects(tracked,new Map(trackedAddresses.map((a,i)=>[a,sim.value.accounts?.[i+3]])),{creator:record.creator,mint:record.mint,minimumRaw:conversion.minimumRaw});
-    const purchased=sim.value.accounts?.[trackedAddresses.indexOf(getAssociatedTokenAddressSync(mint,creator,false,TOKEN_2022_PROGRAM_ID).toBase58())+3];
-    if(!purchased||unpackAccount(getAssociatedTokenAddressSync(mint,creator,false,TOKEN_2022_PROGRAM_ID),{...purchased,owner:new PublicKey(purchased.owner),data:Buffer.from(purchased.data[0],"base64")},TOKEN_2022_PROGRAM_ID).amount<=0n)fail("The initial buy did not deliver your launched token.");
-    if(BigInt(before.value-after)>input.devBuySolRaw+40000000n)fail("SOL conversion and launch exceed the reviewed cost allowance.");
-  }
   const sharesAccount = sim.value.accounts?.[1],
     curveAccount = sim.value.accounts?.[2];
   if (!sharesAccount || !curveAccount)
@@ -369,7 +364,7 @@ export async function prepare(raw) {
       "The public coin image could not be verified. No wallet approval was requested.",
     );
   return {
-    id,
+    id,phase:"launch",fundingId:record.fundingId,
     mint: record.mint,
     wire: record.wire,
     expiresAt: record.expiresAt,
@@ -382,6 +377,20 @@ export async function prepare(raw) {
     quoteMint: NEAR,
     creator: record.creator,feeTreasury:record.feeTreasury,rewardPolicyHash:record.rewardPolicyHash,
   };
+}
+async function prepareConversion(input,c,rewards){
+ const creator=input.creator.toBase58(),mint=input.mint.toBase58(),route=await solConversion(creator,input.devBuySolRaw,{mint,treasury:rewards.treasury}),tracked=await walletTokenState(c.rpc,creator,new Set(route.instructions.flatMap(ix=>ix.keys.map(k=>k.pubkey.toBase58())))),nearAta=getAssociatedTokenAddressSync(new PublicKey(NEAR),input.creator).toBase58(),addresses=[...new Set([...tracked.map(r=>r.address),nearAta])];
+ if(tracked.some(r=>r.state.mint.toBase58()==='So11111111111111111111111111111111111111112'&&r.state.amount>0n))fail('Unwrap existing wrapped SOL before using a SOL initial buy.');
+ await instructions({...input,devBuyRaw:BigInt(route.minimumRaw),feeTreasury:rewards.treasury,uri:origin()+'/api/metadata?id=preflight'},c);
+ const id=randomUUID(),latest=await c.rpc.getLatestBlockhashAndContext('confirmed'),tx=compileLaunchV1({payer:input.creator,latest:latest.value,instructions:route.instructions,computeUnitLimit:1000000}),before=await c.rpc.getBalanceAndContext(input.creator,{commitment:'confirmed',minContextSlot:latest.context.slot}),sim=await c.rpc.simulateTransaction(tx,{sigVerify:false,commitment:'confirmed',minContextSlot:before.context.slot,accounts:{encoding:'base64',addresses:[creator,...addresses]}}),after=sim.value.accounts?.[0]?.lamports;
+ if(sim.value.err||sim.context.slot<before.context.slot||!Number.isSafeInteger(before.value)||!Number.isSafeInteger(after)||before.value-after<Number(input.devBuySolRaw)||BigInt(before.value-after)>input.devBuySolRaw+10000000n||after<30000000)fail('The SOL conversion did not pass simulation, or leaves insufficient SOL for creation. No payment was requested.');
+ verifyConversionEffects(tracked,new Map(addresses.map((a,i)=>[a,sim.value.accounts?.[i+1]])),{creator,mint,minimumRaw:route.minimumRaw});
+ const record={id,phase:'conversion',creator,mint,name:input.name,symbol:input.symbol,creatorFeeBps:input.creatorFeeBps,devBuySolRaw:String(input.devBuySolRaw),devBuyRaw:route.minimumRaw,feeTreasury:rewards.treasury,rewardPolicyHash:POLICY_HASH,wire:Buffer.from(tx.serialize()).toString('base64'),lastValidBlockHeight:latest.value.lastValidBlockHeight,expiresAt:Date.now()+45000,estimatedSolRaw:String(before.value-after+500000)};
+ await create('drafts/'+id+'.json',record);return record;
+}
+export function verifyConversionReceipt(tx,d){
+ const keys=tx.transaction.message.getAccountKeys({accountKeysFromLookups:tx.meta.loadedAddresses}),ata=getAssociatedTokenAddressSync(new PublicKey(NEAR),new PublicKey(d.creator)).toBase58();let received=0n;const before=new Map((tx.meta.preTokenBalances||[]).map(r=>[r.accountIndex,r])),after=new Map((tx.meta.postTokenBalances||[]).map(r=>[r.accountIndex,r]));for(const index of new Set([...before.keys(),...after.keys()])){const a=before.get(index),b=after.get(index);if(a?.owner!==d.creator&&b?.owner!==d.creator)continue;if(a&&b&&(a.owner!==b.owner||a.mint!==b.mint||a.programId!==b.programId))fail('Conversion receipt changed token ownership.');const delta=BigInt(b?.uiTokenAmount.amount||'0')-BigInt(a?.uiTokenAmount.amount||'0');if(keys.get(index)?.toBase58()===ata){if(b?.mint!==NEAR||b.owner!==d.creator||b.programId!==TOKEN_PROGRAM_ID.toBase58())fail('Conversion receipt has an invalid destination.');received+=delta;}else if(a?.mint!=='So11111111111111111111111111111111111111112'&&delta<0n)fail('Conversion receipt consumed another wallet token.');}
+ if(received<BigInt(d.devBuyRaw)||keys.get(0)?.toBase58()!==d.creator||BigInt(tx.meta.preBalances[0]-tx.meta.postBalances[0])>BigInt(d.estimatedSolRaw))fail('Conversion receipt did not deliver its reviewed minimum.');return String(received);
 }
 export async function submit(input) {
   const d = await draft(input.id);
@@ -421,7 +430,8 @@ export async function status(id, signature, broadcast = false) {
   if (!saved || saved.signature !== signature)
     fail("No matching signed launch is saved.", 404);
   const rpc = connection();
-  const existing = await read("receipts/" + d.mint + ".json");
+  if(d.phase==='conversion'){const funded=await read('funding/'+d.id+'.json');if(funded){if(funded.signature!==signature)fail('The conversion has another confirmed receipt.');await removePending(saved);return {status:'converted',funding:{id:d.id,signature,nearRaw:funded.receivedRaw}};}}
+  const existing = d.phase==='conversion'?null:await read("receipts/" + d.mint + ".json");
   if (existing) {
     if (existing.signature !== signature)
       fail("The mint has another confirmed launch record.");
@@ -456,6 +466,9 @@ export async function status(id, signature, broadcast = false) {
         recordTx.message.serialize().length
     )
       fail("The finalized receipt differs from the approved launch.");
+    if(d.phase==='conversion'){
+      const receivedRaw=verifyConversionReceipt(tx,d),funded={id:d.id,creator:d.creator,mint:d.mint,devBuySolRaw:d.devBuySolRaw,devBuyRaw:d.devBuyRaw,receivedRaw,feeTreasury:d.feeTreasury,signature,verifiedAt:new Date().toISOString()};await createOnce('funding/'+d.id+'.json',funded,(a,b)=>a.signature===b.signature);await removePending(saved);return {status:'converted',funding:{id:d.id,signature,nearRaw:receivedRaw}};
+    }
     await verifyFeeAssignment(rpc, d.mint, d.feeTreasury||d.creator, NEAR, d.creatorFeeBps);
     const mint = await rpc.getAccountInfo(new PublicKey(d.mint), "finalized");
     if (!mint || !mint.owner.equals(TOKEN_2022_PROGRAM_ID))

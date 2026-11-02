@@ -22,3 +22,12 @@ Open owner items:
 4. Findings: `Crypto/research/near/2026-11-02-intent-pad-launch-findings.md`.
 
 Shared memory project ID: `near-intent-launchpad`. Record decisions and failed attempts with sources using C:/AI/harness/cli.py and explicit --project. Do not infer this project's preferences from another project.
+
+
+Latest owner-directed work, 2026-11-02 (Codex):
+- Merged collaborator main `f07514e` into the SOL-buy/reward branch before publishing. Preserved the native NEAR fixes above.
+- Owner changed initial buys to SOL while keeping NEAR pairing. SOL conversion followed by separately approved Pump creation uses signed spending/output caps and full simulation; confirmed conversion receipts are reused (the combined atomic path exceeded the instruction trace limit); old saved wires retain their original meaning.
+- Owner requested 15-minute proportional holder rewards, 65% of creator fees to holders and 35% held for low volume. Added a dedicated Railway worker, private authenticated CAS journal, exact confirmed receipt accounting, dust carry, bounded reserve release and public reward records. Launches gate on a treasury-signed worker readiness heartbeat.
+- **Current activation status: NOT funded-mainnet accepted.** Railway has only APP_ORIGIN and dedicated BLOB_READ_WRITE_TOKEN; no Intent operator public address/key or authenticated worker RPC has been provided. Worker defaults off. Add variables per RELEASE_NEAR_SOLANA.md, then owner-approved funded acceptance. No keys/identities imported from another app; no actual funds moved.
+- The operator key is server-only on Railway, separate from browser launch signing. The owner explicitly requested this automation. Do not put it into frontend/Vercel env. Do not change old immutable creator fee assignments or discard unknown signed transactions.
+- The Windows-only umbrella/harness paths in AGENTS.md are unavailable on this Mac; decisions are recorded here and in RELEASE_NEAR_SOLANA.md for the collaborator to ingest.

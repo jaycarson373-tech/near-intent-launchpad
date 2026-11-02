@@ -436,7 +436,7 @@ export default function App() {
                   [
                     "01",
                     "Buy with SOL.",
-                    "Your SOL converts to the NEAR needed for the initial buy, together with coin creation. Keep SOL for rent and gas.",
+                    "Your SOL converts to the NEAR needed for the initial buy. Creation follows after that conversion confirms. Keep SOL for rent and gas.",
                   ],
                   [
                     "02",
@@ -699,7 +699,7 @@ export default function App() {
                             : void launch.connect()
                         }
                       >
-                        Fund with NEAR <Icon name="arrow" size={15} />
+                        Fund with Intents <Icon name="arrow" size={15} />
                       </button>
                     </div>
                     <label className="dev-buy">
@@ -716,7 +716,7 @@ export default function App() {
                       />
                       <small>
                         0 skips the buy. Purchased coins go to your Solana
-                        wallet. SOL converts to NEAR in the same transaction; account rent and network fees are extra.
+                        wallet. Approve the SOL-to-NEAR conversion, then coin creation and your initial buy. Account rent and network fees are extra.
                       </small>
                     </label>
                     <button
@@ -724,7 +724,7 @@ export default function App() {
                       disabled={
                         launch.busy ||
                         imageBusy ||
-                        launch.health?.ready === false
+                        (!!launch.account && launch.health?.ready === false)
                       }
                       type="submit"
                     >
@@ -754,8 +754,9 @@ export default function App() {
                       ],
                       ["Paired with", "NEAR on Solana"],
                       ["Creator fee", launch.review.creatorFeeBps / 100 + "%"],
-                      ["Reward treasury", launch.review.feeTreasury],
-                      ["Initial buy", atoms(launch.review.devBuySolRaw || "0") + " SOL"],
+                      [launch.review.feeTreasury?"Reward treasury":"Original fee recipient", launch.review.feeTreasury||launch.review.creator],
+                      ["Initial buy", launch.review.devBuySolRaw!==undefined?atoms(launch.review.devBuySolRaw)+" SOL"+(launch.review.fundingId?" · converted":""):atoms(launch.review.devBuyRaw)+" NEAR · saved review"],
+                      ["Approval",launch.review.phase==="conversion"?"1 of 2 · SOL conversion":"Coin creation & initial buy"],
                       [
                         "Estimated SOL debit",
                         atoms(launch.review.estimatedSolRaw) + " SOL",
@@ -809,9 +810,7 @@ export default function App() {
                       <div className="funding-note">
                         <Icon name="shield" />
                         <p>
-                          The reviewed transaction creates your coin, locks its
-                          creator fee to the reward treasury and includes the optional
-                          SOL-funded buy. Review the total cost in your wallet.
+                          {launch.review.phase==='conversion'?'First, convert the entered SOL amount to NEAR. A separate approval then creates the coin and makes the buy. Converted NEAR stays in your wallet if you stop.':'This transaction creates your coin and locks its reviewed fee recipient. Your wallet shows the initial buy, if set, plus rent and network fees.'}
                         </p>
                       </div>
                       <button
@@ -823,7 +822,7 @@ export default function App() {
                           ? "Waiting for wallet…"
                           : now > launch.review.expiresAt
                             ? "Review expired"
-                            : "Approve in your Solana wallet"}
+                            : launch.review.phase==="conversion"?"Approve SOL conversion":"Approve coin creation"}
                         <Icon name="wallet" />
                       </button>
                       <button
@@ -875,7 +874,7 @@ export default function App() {
                 ],
                 [
                   "Can I still fund through Intents?",
-                  "Connect your Solana wallet, then open Fund with NEAR. Connect the NEAR account used for refunds, choose SOL to fund the initial buy, rent and gas, and review the exact Intents quote. The deposit and the launch are separate approvals.",
+                  "Connect your Solana wallet, then open Fund with Intents. Connect the NEAR account used for refunds, choose SOL to fund the initial buy, rent and gas, and review the exact Intents quote. The deposit and the launch are separate approvals.",
                 ],
                 [
                   "Where do creator fees go?",
@@ -895,7 +894,7 @@ export default function App() {
                 ],
                 [
                   "Who receives the initial buy?",
-                  "Your connected Solana launching wallet. Enter the initial buy in SOL. An exact-input swap converts SOL to NEAR and buys your coin in the same transaction. If any step fails, the whole transaction reverts; a failed onchain transaction can still incur its network fee. Account rent and network costs are shown separately.",
+                  "Your connected Solana launching wallet. Enter the initial buy in SOL. An exact-input swap converts SOL to NEAR first. Once finalized, a separate wallet approval creates and buys your coin. If creation fails or you stop, the converted NEAR stays in your wallet. An onchain failure can still incur its network fee.",
                 ],
                 [
                   "Is this an official NEAR or Pump.fun product?",

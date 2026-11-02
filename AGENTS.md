@@ -47,3 +47,6 @@ near-sandbox, near-workspaces and secp256k1 unless approved; the website does no
 - Copy follows the machine front-end rules (`C:/Users/PC/.claude/lib/frontend-rules.md`) and
   `Crypto/shared/token-launch-credibility.md`: never pitch the buyback/burn as live until it is.
 - NEAR findings and sources: `C:/Users/PC/Projects/Crypto/research/near/`.
+
+## Owner-directed 15-minute reward worker (2026-11-02)
+The owner requested automatic claims and proportional holder payouts (65/35). The new Railway-only worker implementation is in `worker/`, and **defaults off**. The public treasury identity must match its protected signing key; `INTENT_REWARDS_ENABLED=1` is the operator’s explicit activation switch. New launches gate on a current treasury-signed readiness heartbeat. Launch and SOL conversion approvals still belong to the user’s wallet. Agents must not perform funded acceptance or invent operator identities; no funded acceptance has occurred. Config and exact remaining checks are in `RELEASE_NEAR_SOLANA.md`. Preserve pending wires, authenticated journals, old immutable fee assignments and the collaborator’s native NEAR work.

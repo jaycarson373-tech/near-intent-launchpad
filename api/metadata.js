@@ -7,7 +7,7 @@ export default async function handler(req, res) {
       id = q.get("id");
     if (!/^[a-f0-9-]{36}$/.test(id || "")) fail("Metadata not found.", 404);
     const d = await read("drafts/" + id + ".json");
-    if (!d) fail("Metadata not found.", 404);
+    if (!d || d.phase==="conversion") fail("Metadata not found.", 404);
     if (q.has("image")) {
       res.setHeader("Content-Type", d.mime);
       res.setHeader("X-Content-Type-Options", "nosniff");

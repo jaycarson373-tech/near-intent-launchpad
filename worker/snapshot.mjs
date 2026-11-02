@@ -1,6 +1,103 @@
-import {createHash} from 'node:crypto';import {PublicKey,SystemProgram} from '@solana/web3.js';import {unpackMint,unpackAccount,TOKEN_2022_PROGRAM_ID} from '@solana/spl-token';
+import { createHash } from "node:crypto";
+import { PublicKey, SystemProgram } from "@solana/web3.js";
+import {
+  unpackMint,
+  unpackAccount,
+  TOKEN_2022_PROGRAM_ID,
+} from "@solana/spl-token";
 // Penny/BULLSTR owner aggregation and complete-supply coverage; no stock issuer
 // admission, arbitrary whale exclusion or imported wallet list.
-export function aggregate(rows,{mint,program,supply,excluded=[]}){if(!Array.isArray(rows)||rows.length>50000)throw Error('Holder coverage limit exceeded.');const seen=new Set(),owners=new Map();let observed=0n;for(const r of rows){const k=r.pubkey.toBase58();if(seen.has(k))throw Error('Duplicate token account in snapshot.');seen.add(k);const token=unpackAccount(r.pubkey,r.account,program);if(!token.isInitialized||!token.mint.equals(mint))throw Error('Holder token identity mismatch.');observed+=token.amount;const owner=token.owner.toBase58();owners.set(owner,(owners.get(owner)||0n)+token.amount)}if(observed!==BigInt(supply)||observed<=0n)throw Error('Holder snapshot does not cover total supply.');const omit=new Set([...excluded,'11111111111111111111111111111111','1nc1nerator11111111111111111111111111111111']);return Object.fromEntries([...owners].filter(([owner,n])=>n>0n&&!omit.has(owner)&&PublicKey.isOnCurve(new PublicKey(owner).toBytes())).sort(([a],[b])=>a.localeCompare(b)).map(([o,n])=>[o,String(n)]))}
-export async function holderSnapshot(rpc,mintAddress,treasury){const mint=new PublicKey(mintAddress),before=await rpc.getAccountInfoAndContext(mint,{commitment:'finalized'});if(!before.value?.owner.equals(TOKEN_2022_PROGRAM_ID))throw Error('Unexpected holder mint program.');const state=unpackMint(mint,before.value,TOKEN_2022_PROGRAM_ID);if(!state.isInitialized||state.decimals!==6||state.freezeAuthority)throw Error('Unexpected holder mint configuration.');const r=await rpc.getProgramAccounts(TOKEN_2022_PROGRAM_ID,{commitment:'finalized',minContextSlot:before.context.slot,withContext:true,filters:[{memcmp:{offset:0,bytes:mintAddress}}]});if(!Number.isSafeInteger(r.context?.slot)||r.context.slot<before.context.slot)throw Error('Holder snapshot slot is unavailable.');const weights=aggregate(r.value,{mint,program:TOKEN_2022_PROGRAM_ID,supply:state.supply,excluded:[treasury]});const addresses=Object.keys(weights);for(let i=0;i<addresses.length;i+=100){const keys=addresses.slice(i,i+100),info=await rpc.getMultipleAccountsInfo(keys.map(k=>new PublicKey(k)),{commitment:'finalized',minContextSlot:r.context.slot});for(let n=0;n<keys.length;n++){const account=info[n];if(account&&(account.executable||!account.owner.equals(SystemProgram.programId)||account.data.length!==0))delete weights[keys[n]]}}
-const proof={rule:'observed-finalized-direct-wallet-balance-v1',mint:mintAddress,slot:r.context.slot,observedAt:new Date().toISOString(),supplyRaw:String(state.supply),weights};return {...proof,root:createHash('sha256').update(JSON.stringify(proof)).digest('hex')}}
+export function aggregate(rows, { mint, program, supply, excluded = [] }) {
+  if (!Array.isArray(rows) || rows.length > 50000)
+    throw Error("Holder coverage limit exceeded.");
+  const seen = new Set(),
+    owners = new Map();
+  let observed = 0n;
+  for (const r of rows) {
+    const k = r.pubkey.toBase58();
+    if (seen.has(k)) throw Error("Duplicate token account in snapshot.");
+    seen.add(k);
+    const token = unpackAccount(r.pubkey, r.account, program);
+    if (!token.isInitialized || !token.mint.equals(mint))
+      throw Error("Holder token identity mismatch.");
+    observed += token.amount;
+    const owner = token.owner.toBase58();
+    owners.set(owner, (owners.get(owner) || 0n) + token.amount);
+  }
+  if (observed !== BigInt(supply) || observed <= 0n)
+    throw Error("Holder snapshot does not cover total supply.");
+  const omit = new Set([
+    ...excluded,
+    "11111111111111111111111111111111",
+    "1nc1nerator11111111111111111111111111111111",
+  ]);
+  return Object.fromEntries(
+    [...owners]
+      .filter(
+        ([owner, n]) =>
+          n > 0n &&
+          !omit.has(owner) &&
+          PublicKey.isOnCurve(new PublicKey(owner).toBytes()),
+      )
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([o, n]) => [o, String(n)]),
+  );
+}
+export async function holderSnapshot(rpc, mintAddress, treasury) {
+  const mint = new PublicKey(mintAddress),
+    before = await rpc.getAccountInfoAndContext(mint, {
+      commitment: "finalized",
+    });
+  if (!before.value?.owner.equals(TOKEN_2022_PROGRAM_ID))
+    throw Error("Unexpected holder mint program.");
+  const state = unpackMint(mint, before.value, TOKEN_2022_PROGRAM_ID);
+  if (!state.isInitialized || state.decimals !== 6 || state.freezeAuthority)
+    throw Error("Unexpected holder mint configuration.");
+  const r = await rpc.getProgramAccounts(TOKEN_2022_PROGRAM_ID, {
+    commitment: "finalized",
+    minContextSlot: before.context.slot,
+    withContext: true,
+    filters: [{ memcmp: { offset: 0, bytes: mintAddress } }],
+  });
+  if (
+    !Number.isSafeInteger(r.context?.slot) ||
+    r.context.slot < before.context.slot
+  )
+    throw Error("Holder snapshot slot is unavailable.");
+  const weights = aggregate(r.value, {
+    mint,
+    program: TOKEN_2022_PROGRAM_ID,
+    supply: state.supply,
+    excluded: [treasury],
+  });
+  const addresses = Object.keys(weights);
+  for (let i = 0; i < addresses.length; i += 100) {
+    const keys = addresses.slice(i, i + 100),
+      info = await rpc.getMultipleAccountsInfo(
+        keys.map((k) => new PublicKey(k)),
+        { commitment: "finalized", minContextSlot: r.context.slot },
+      );
+    for (let n = 0; n < keys.length; n++) {
+      const account = info[n];
+      if (
+        account &&
+        (account.executable ||
+          !account.owner.equals(SystemProgram.programId) ||
+          account.data.length !== 0)
+      )
+        delete weights[keys[n]];
+    }
+  }
+  const proof = {
+    rule: "observed-finalized-direct-wallet-balance-v1",
+    mint: mintAddress,
+    slot: r.context.slot,
+    observedAt: new Date().toISOString(),
+    supplyRaw: String(state.supply),
+    weights,
+  };
+  return {
+    ...proof,
+    root: createHash("sha256").update(JSON.stringify(proof)).digest("hex"),
+  };
+}

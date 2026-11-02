@@ -49,6 +49,8 @@ export const EMPTY_COIN: CoinDraft = {
 export type Review = {
   feeTreasury:string;rewardPolicyHash:string;
   id: string;
+  phase?:"conversion"|"launch";
+  fundingId?:string|null;
   mint: string;
   wire: string;
   expiresAt: number;
@@ -66,6 +68,8 @@ type Saved = {
   publicKey: string;
   details: CoinDraft;
   review?: Review;
+  fundingId?:string;
+  fundingSignature?:string;
   signed?: Uint8Array;
   signature?: string;
 };
@@ -252,6 +256,7 @@ export function useSolanaLaunch() {
         ...details,
         creator,
         mint: saved.publicKey,
+        fundingId:saved.fundingId,
       });
       if (current.current?.account.address !== creator)
         throw Error(
@@ -271,11 +276,19 @@ export function useSolanaLaunch() {
       setBusy(false);
     }
   }
+  async function converted(saved:Saved,funding:{id:string;signature:string}){
+    saved.fundingId=funding.id;saved.fundingSignature=funding.signature;delete saved.signed;delete saved.signature;delete saved.review;await launchDraft('put','mainnet:'+saved.creator,saved);
+    if(current.current?.account.address!==saved.creator)return;
+    setReview(null);setSignature('');setStage('idle');setMessage('SOL conversion finalized. Preparing coin creation; no second SOL conversion is requested.');
+    const result=await api<Review>('/api/launch?action=prepare',{...saved.details,creator:saved.creator,mint:saved.publicKey,fundingId:saved.fundingId});saved.review=result;await launchDraft('put','mainnet:'+saved.creator,saved);
+    if(current.current?.account.address!==saved.creator)return;setReview(result);setStage('review');setMessage('SOL is converted. Approve coin creation and the initial buy. Converted tokens stay in your wallet if you stop.');
+  }
   async function follow(saved: Saved) {
-    const r = await api<{ status: string; coin?: Coin; error?: string }>(
+    const r = await api<{ status: string; coin?: Coin; funding?:{id:string;signature:string};error?: string }>(
       "/api/launch?action=submit",
       { id: saved.review!.id, wire: to64(saved.signed!) },
     );
+    if(r.status==="converted"&&r.funding){await converted(saved,r.funding);return;}
     if (r.status === "confirmed" && r.coin) {
       await launchDraft("delete", "mainnet:" + saved.creator);
       if (current.current?.account.address !== saved.creator) return;
@@ -323,7 +336,7 @@ export function useSolanaLaunch() {
         if (!signer)
           throw Error("This wallet cannot sign Solana transactions.");
         setStage("wallet");
-        setMessage("Review coin creation in your Solana wallet.");
+        setMessage(saved.review.phase==="conversion"?"Review the SOL-to-NEAR conversion. Coin creation follows in a separate approval.":"Review coin creation in your Solana wallet.");
         const signed = await signer.signTransaction({
           account: connected.account,
           transaction: from64(saved.review.wire),
@@ -334,22 +347,12 @@ export function useSolanaLaunch() {
         const decoded = getTransactionDecoder().decode(
           signed[0].signedTransaction,
         );
-        const mintSignature = new Uint8Array(
-          await crypto.subtle.sign(
-            { name: "Ed25519" },
-            saved.privateKey,
-            new Uint8Array(decoded.messageBytes),
-          ),
-        );
-        const wire = new Uint8Array(
-          getTransactionEncoder().encode({
-            ...decoded,
-            signatures: {
-              ...decoded.signatures,
-              [saved.publicKey]: mintSignature,
-            },
-          }),
-        );
+        let wire:Uint8Array;
+        if(saved.review.phase==='conversion')wire=new Uint8Array(signed[0].signedTransaction);
+        else {
+        const mintSignature = new Uint8Array(await crypto.subtle.sign({name:'Ed25519'},saved.privateKey,new Uint8Array(decoded.messageBytes)));
+        wire=new Uint8Array(getTransactionEncoder().encode({...decoded,signatures:{...decoded.signatures,[saved.publicKey]:mintSignature}}));
+        }
         walletSignedLaunchMatches(from64(saved.review.wire), wire);
         saved.signed = wire;
         saved.signature = cloutPaymentSignature(wire);
@@ -376,11 +379,12 @@ export function useSolanaLaunch() {
     const owner = connected.account.address;
     try {
       setBusy(true);
-      const r = await api<{ status: string; coin?: Coin; error?: string }>(
+      const r = await api<{ status: string; coin?: Coin; funding?:{id:string;signature:string};error?: string }>(
         "/api/launch?action=status&id=" + review.id + "&signature=" + signature,
       );
       if (current.current?.account.address !== owner) return;
       setStage(r.status);
+      if(r.status==='converted'&&r.funding){const saved=await launchDraft('get','mainnet:'+owner) as Saved|undefined;if(!saved)throw Error('Reconnect the original wallet to recover the conversion.');await converted(saved,r.funding);return;}
       if (r.status === "confirmed" && r.coin) {
         await launchDraft("delete", "mainnet:" + connected.account.address);
         setReview(null);

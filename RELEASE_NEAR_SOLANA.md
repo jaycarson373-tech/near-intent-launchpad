@@ -4,11 +4,11 @@
 
 The product now launches Pump.fun tokens on **Solana mainnet**, paired with wrapped NEAR (`3ZLekZYq2qkZiSpnSvabjit34tUkjSwD1JFuW9as9wBG`, 9 decimals, SPL Token). The mint was checked against Pump's live QuoteControl. Native NEAR creation is no longer the primary UI. The pinned native contract, verification API, sandbox tests and browser receipt namespaces remain unchanged; earlier `?token=...` links still inspect the native token on NEAR.
 
-The creation flow reuses PennyFun's official-SDK creation, immutable fee-sharing assignment, v1 wire encoding, wallet assertion validation and receipt recovery. Source revision: `b633d40af60f1aa1d7e24c63d5d8d6340913c054`. No Penny wallet, provider credential, ledger, paused worker or stock economics were imported. Creator-fee choices are 0.3%, 0.5%, 1%, 2%, 3%; **100% of each launched coin's creator fees belong to its launching wallet**. Pump protocol fees are separate. The previous, separate parent Intent Pad buyback/burn proposal remains unconfigured and inactive; this release does not activate it.
+The creation flow reuses PennyFun's official-SDK creation, immutable fee-sharing assignment, v1 wire encoding, wallet assertion validation and receipt recovery. Source revision: `b633d40af60f1aa1d7e24c63d5d8d6340913c054`. No Penny wallet, provider credential, ledger, paused worker or stock economics were imported. Creator-fee choices are 0.3%, 0.5%, 1%, 2%, 3%; **100% of each new reward-enabled coin’s creator fees are immutably assigned to the dedicated Intent reward treasury**. Pump protocol fees are separate. The previous, separate parent Intent Pad buyback/burn proposal remains unconfigured and inactive; this release does not activate it.
 
 ## Implementation
 
-- Wallet Standard Solana connection; wallet-approved launch and optional exact-input wNEAR buy in one transaction. No operator private key or server-side mint key.
+- Wallet Standard Solana connection; wallet-approved launch and optional exact-input SOL-to-NEAR conversion, followed by a separately approved creation and initial buy. The user signs creation; the separate protected Railway operator signs only configured fee claims and holder payouts. The mint key remains browser-held.
 - Non-extractable browser mint CryptoKey, wallet-specific IndexedDB draft and exact signed-wire recovery. A signed, unresolved transaction never silently becomes a new mint or a second payment.
 - Private, dedicated Vercel Blob store: immutable reviews and signed outbox, then public receipt projection only after finalized successful transaction, message equality, mint and locked fee validation. Signed wires remain private.
 - NEAR Intents / 1Click funding to the connected Solana wallet: exact recipient, assets, refund account, input and 1% slippage bound. Sender/receiver storage, only necessary wrapping, exact wNEAR transfer. Funding is a distinct NEAR wallet approval. A provider status is not treated as a confirmed wallet balance.
@@ -17,13 +17,13 @@ The creation flow reuses PennyFun's official-SDK creation, immutable fee-sharing
 
 ## Required production configuration
 
-Vercel project: `near-intent-launchpad`. No Supabase database or Railway worker is needed for this wallet-signed flow.
+Vercel project: `near-intent-launchpad`. Creation stays wallet-signed. The existing dedicated Railway service also hosts the persistent reward worker; its separate authenticated SQLite journal is durably checkpointed to this project’s private Blob store. No additional Supabase database is required.
 
 - `BLOB_READ_WRITE_TOKEN`: server-only; linked to the dedicated private `intent-pad-launches` store. Already configured in production.
 - `APP_ORIGIN`: optional canonical HTTPS origin; otherwise Vercel production URL is used. Must match the live site used for wallet reviews/metadata.
 - `SOLANA_RPC_URL`: server-only authenticated mainnet RPC recommended before public traffic. Public Solana mainnet RPC is the fallback and is rate-limited. Never use the shared local development proxy in production.
 - `NEAR_INTENTS_JWT`: optional server-only 1Click partner token. The unauthenticated route works and discloses the provider's additional 0.25% fee.
-- Keep all signing in the user's wallets. No private key belongs in a `VITE_` variable.
+- Keep launch signing in the user’s wallet. The reward operator key belongs only in Railway’s protected server environment. No private key belongs in a `VITE_` variable.
 
 Production metadata URI host is permanent for launched tokens; retain this Vercel project/domain or migrate its metadata routes deliberately.
 
@@ -46,3 +46,47 @@ A user-controlled funded wallet must still approve a small mainnet creation, con
 - https://21st.dev/ and Background Paths preview: inspected for card/navigation density and restrained line graphics.
 - https://reactbits.dev/: inspected actual motion previews. No shader, downloaded component or unreviewed dependency was installed from either design catalog.
 - Hero mesh, NEAR-style mark, SVG icon family and responsive CSS are original code in this repository. Animation is lightweight CSS/SVG and honors reduced motion.
+
+
+## 2026-11-02 — SOL buys and 15-minute holder rewards
+
+Collaborator changes through `f07514e` were merged, including FastNEAR routing, wallet checks, path traversal protection, security headers and pinned CI. No native history, contract artifact, prior fee assignment, source-project wallet, or source-project pause was replaced.
+
+New launches use an **initial buy amount in SOL**. Jupiter exact-input conversion to wNEAR is finalized first, then a separate approval creates and buys the coin. Combining both steps exceeded the mainnet instruction trace limit in unsigned testing, so the implementation does not pretend that failed atomic path works. The saved finalized conversion is bound to wallet, mint, SOL amount and treasury, and reused without another conversion on retry. The conversion spends exactly the entered SOL input plus simulated rent/network costs. Creation buys with the independently derived 0.5%-slippage output floor; conversion surplus remains in the user’s wNEAR account. If creation fails or the user stops, converted NEAR remains theirs. Network fees may still apply to a failed onchain transaction. Existing signed reviews retain their original bytes and currency; the app does not reinterpret old NEAR reviews as SOL. Nonzero old NEAR form submissions require re-entry in SOL.
+
+The conversion limits are read from the actual signed Jupiter instruction bytes, not just quote JSON. The live route uses one direct public-pool hop, bounded to reviewed venues; exact source/destination token accounts and all touched existing wallet token balances/permissions are checked. V2 instruction layout was checked against Jupiter’s **program-owned mainnet Anchor IDL** at `C88XWfp26heEmDkmfSzeXP7Fd7GQJ2j9dDTUsyiZbUTa`, inflated JSON SHA256 `e6c2b425ec740922ee91aa7a3278cea07f4bc00a3ed9efa4eca16facb481bfca`. Official build API: https://developers.jup.ag/docs/api-reference/swap/build . Quote integer rounding is handled without weakening the onchain output floor.
+
+### Reward operation and custody
+
+- New launches require a current treasury-signed worker heartbeat before the irreversible fee assignment is prepared. Missing identity, unavailable worker, or failed preflight closes new launch preparation. Existing signed receipts remain recoverable.
+- Per-coin finalized creator-fee receipts split **65% holder rewards / 35% reserve** using integer arithmetic. Pump protocol fees remain separate. Receipts, credited liabilities, snapshots, reserved payouts and confirmed transfers are independent durable records.
+- Every 15-minute UTC epoch, the worker observes finalized Token-2022 holders, verifies complete supply coverage, aggregates accounts by ordinary wallet owner, excludes treasury/program/pool/burn custody, and assigns proportional wNEAR credits. This is an **observed finalized snapshot when the worker executes**, not a claim to reconstruct historical balances at an exact past boundary. Missed epochs are not replayed with current balances.
+- Sub-minimum credits carry forward. Existing wNEAR ATA minimum: 0.001 NEAR. New ATA minimum: 0.1 NEAR, to avoid paying account rent for dust. Payouts batch up to ten recipients per transaction and continue on later worker ticks. Recipient account creation is included in simulation and the operator SOL budget.
+- Reserve release requires eight consecutive real rolling-hour volume observations. Below 50% of their median, release up to 5% of the current reserve per epoch, capped at 20% of the day’s opening reserve. Missing/indexing-error volume holds the reserve. The source is the matching NEAR pair’s DEX Screener data.
+- A protected 0.02 SOL operator balance and a 0.025 SOL maximum per-job debit bound operating costs. Confirmed fee credits and exact recipient token credits are reconciled from the finalized transaction. Arbitrary wallet deposits are not called creator revenue.
+- Exact signed jobs are persisted before broadcast using authenticated SQLite checkpoints and strong-ETag conditional writes. Losing a checkpoint race fences the stale worker from broadcasting. Pending/uncertain payouts keep their liabilities; confirmed failures restore the same credits; expired unknown transactions halt new spending for reconciliation. No replacement payment is made automatically for an unknown result.
+- The private journal is scoped to treasury + mainnet + policy hash. Changing wallets/policy requires an intentional migration; never delete a ledger or silently reassign outstanding obligations. Permissionless third-party fee distributions are not automatically attributed by this first worker revision; their unallocated treasury credits require receipt reconciliation before use.
+
+### Configuration to complete
+
+| Setting | Vercel | Railway intent-pad |
+| --- | --- | --- |
+| BLOB_READ_WRITE_TOKEN | Already configured | Already configured, same dedicated store |
+| INTENT_TREASURY_ADDRESS | Public operator/reward treasury address | Same public address |
+| INTENT_OPERATOR_PRIVATE_KEY | **Do not add here** | Protected matching 64-byte JSON or base58 signing key |
+| SOLANA_RPC_URL | Own mainnet HTTPS RPC recommended | Own mainnet HTTPS RPC required, including filtered context-bearing Token-2022 enumeration |
+| INTENT_REWARDS_ENABLED | Unused | `1` after configuration and funding; default off |
+| JUPITER_API_KEY | Optional server key for swap quota | Optional server key for swap quota |
+
+Fund the **same configured operator public wallet** with sufficient SOL for operating costs (protected reserve plus rent). 0.05 SOL is a reasonable initial testing buffer, not a guarantee of ongoing costs. Launching wallets separately pay for their own initial buy, creation rent and fees. The INTENT platform mint has not been supplied; none is invented.
+
+### Acceptance still required
+
+No user-controlled funded launch, creator-fee claim, holder transfer or Intents settlement was executed in this pass. Automated checks and unsigned mainnet simulation do not prove funded settlement. Operator identity, signing key, authenticated worker RPC, worker enablement and a small owner-approved end-to-end launch/claim/airdrop are still required before declaring public rewards live. The rollout deliberately reports the missing worker instead of locking new coins to an unconfigured destination.
+
+### Visual update
+
+The existing type, layout and mint/charcoal palette remain. The original mesh now has flowing highlights, moving packets and a pulsing connection point; animation pauses offscreen and disables under reduced motion. Coin pages show confirmed reward receipts and actual reserve totals, with explicit unavailable/empty states. No fictional launches or transfers were added.
+
+
+Latest verification on the combined collaborator build: 51 automated tests pass; production build passes; lint exits successfully with the preserved native-NEAR effect warning. Unsigned mainnet **0.01 SOL conversion** passed (851 bytes, about 95K compute units; exact minimum output and existing assets checked). A separate **zero-buy creation with an independent treasury** passed (about 353K compute units). The public probe wallet has no NEAR balance, so a nonzero initial-buy simulation from that wallet correctly failed; simulated swap output was never treated as real wallet funding. A funded conversion → creation/buy → fee claim → holder transfer remains unverified. No mainnet signature was created or broadcast.
