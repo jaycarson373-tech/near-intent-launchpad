@@ -8,15 +8,17 @@ The sections below document the retained, earlier native NEAR implementation. It
 
 ## Native launch flow
 
-Connect a named NEAR wallet, configure name/symbol/supply/decimals and a child-account prefix, review account/storage funding, then approve the transaction in the wallet. The transaction creates the child account, funds it, deploys the pinned standard NEP-141 contract and initializes the supply to the approving owner. No access keys are added to the token account. This makes the deployed contract non-upgradeable through an admin key.
+Connect a named NEAR account with Meteor Wallet (extension or web), configure name/symbol/supply/decimals and a child-account prefix, review account/storage funding, then approve the transaction in the wallet. The transaction creates the child account, funds it, deploys the pinned standard NEP-141 contract and initializes the supply to the approving owner. No access keys are added to the token account. This makes the deployed contract non-upgradeable through an admin key.
 
 The bundled WASM was built from NEAR's official FT example at the commit in contracts/PROVENANCE.json. Its SHA-256 and NEAR code hash are in public/contracts/manifest.json. The browser verifies the bytes before asking the wallet to sign. Confirmed launches require a finalized, successful owner transaction plus exact code, metadata and supply checks. Pending requests and drafts are never recorded as completed launches.
 
 The contract account is funded for code/state storage plus a buffer; wallet gas is additional. Intent Pad charges no platform fee for native deployment in this version. It does not automatically create a liquidity pool or a new NEAR Intents route. A funded wallet deployment still requires integration verification before describing the product as launch-ready.
 
+Wallet support: the deployment transaction carries the ~201 KB contract (~270 KB encoded). Wallets that pass transactions through the URL cannot sign it (MyNearWallet returns HTTP 414), so only Meteor is offered. The NEAR funding step for Solana launches is a small transaction, so it also offers MyNearWallet.
+
 ## Data and discovery
 
-The public directory contains NEAR-network assets supported by 1Click. Public share links inspect a native NEAR token contract directly. Your launch list is stored on your device; it is not a global indexed registry. Native RPC endpoints are read-only and accept a fixed set of actions.
+The public directory contains NEAR-network assets supported by 1Click. Public share links inspect a native NEAR token contract directly. Your launch list is stored on your device; it is not a global indexed registry. Native RPC endpoints are read-only and accept a fixed set of actions. Server reads default to the keyless FastNEAR endpoints (`free.rpc.fastnear.com`, `test.rpc.fastnear.com`); set server-only `NEAR_RPC_URL_MAINNET` / `NEAR_RPC_URL_TESTNET` to an https keyed provider (see `.env.example`). NEAR has deprecated and throttles `rpc.*.near.org`. Storage pricing is cached for 10 minutes; a rate-limited RPC returns 503 with `Retry-After` and is not retried.
 
 ## Intent Pad token economy
 

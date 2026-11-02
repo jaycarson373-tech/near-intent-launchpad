@@ -14,4 +14,5 @@ export function tokenPlan(draft:TokenDraft,owner:string){
  return {contract,owner,supply:atomicSupply.toString(),metadata:{spec:'ft-1.0.0',name,symbol,decimals:draft.decimals,icon:null,reference:null,reference_hash:null}}
 }
 export function formatNear(atomic:string){const s=atomic.padStart(25,'0');return (s.slice(0,-24)+'.'+s.slice(-24).replace(/0+$/,'')).replace(/\.$/,'')}
+export function formatWhole(value:string){return /^[0-9]+$/.test(value)?new Intl.NumberFormat('en-US').format(BigInt(value)):'Invalid supply'}
 export function validateDeployedToken(plan:ReturnType<typeof tokenPlan>,result:{metadata:{name:string;symbol:string;decimals:number};supply:string;account:string;owner:string}){if(result.account!==plan.contract||result.owner!==plan.owner||result.supply!==plan.supply||result.metadata.name!==plan.metadata.name||result.metadata.symbol!==plan.metadata.symbol||result.metadata.decimals!==plan.metadata.decimals)throw new Error('The on-chain token does not match the reviewed launch.');return true}

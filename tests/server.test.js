@@ -22,5 +22,12 @@ test('Railway serves the built app, pinned WASM, API boundaries and health',asyn
   assert.equal((await fetch(base+'/api/intents')).status,405);
   assert.equal((await fetch(base+'/api/launch?action=prepare',{method:'POST',headers:{origin:'https://unrelated.example','content-type':'application/json'},body:'{}'})).status,403);
   assert.equal((await fetch(base+'/',{method:'POST'})).status,405);
+  for(const p of ['/..%2f..%2fpackage.json','/%2e%2e/%2e%2e/package.json','/..%2f..%2f..%2f..%2fwindows%2fwin.ini']){const r=await fetch(base+p);assert.ok(r.status===400||r.status===404,p+' -> '+r.status);assert.doesNotMatch(await r.text(),/"name"\s*:/)}
  }finally{await new Promise(resolve=>server.close(resolve));await rm(dir,{recursive:true})}
+});
+test('a sibling directory sharing the root prefix is never served',async()=>{
+ const parent=await mkdtemp(join(tmpdir(),'intent-pad-sibling-'));await mkdir(join(parent,'site'));await mkdir(join(parent,'site-evil'));await writeFile(join(parent,'site','index.html'),'<div id="root"></div>');await writeFile(join(parent,'site-evil','x.txt'),'EVIL');
+ const server=createServer(join(parent,'site')).listen(0,'127.0.0.1');await once(server,'listening');const base=`http://127.0.0.1:${server.address().port}`;
+ try{for(const p of ['/..%2fsite-evil%2fx.txt','/..%5csite-evil%5cx.txt']){const r=await fetch(base+p);assert.ok(r.status===400||r.status===404,p+' -> '+r.status);assert.doesNotMatch(await r.text(),/EVIL/)}}
+ finally{await new Promise(resolve=>server.close(resolve));await rm(parent,{recursive:true})}
 });
