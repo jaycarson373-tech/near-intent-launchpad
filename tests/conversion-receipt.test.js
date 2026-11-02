@@ -79,6 +79,9 @@ test('atomic settlement preserves prior NEAR and proves the bought token reached
   assert.throws(()=>verifyAtomicLaunchReceipt({...tx,meta:{...tx.meta,postTokenBalances:[row(1,NEAR,'99'),prize]}},d),/minimum/);
   for(const bad of [{...prize,owner:Keypair.generate().publicKey.toBase58()},{...prize,programId:TOKEN_PROGRAM_ID.toBase58()},{...prize,uiTokenAmount:{amount:'0'}}])
     assert.throws(()=>verifyAtomicLaunchReceipt({...tx,meta:{...tx.meta,postTokenBalances:[row(1,NEAR,'101'),bad]}},d),/credit/);
+  const recovered={...tx,meta:{...tx.meta,preTokenBalances:[row(1,NEAR,'1000')],postTokenBalances:[row(1,NEAR,'5'),prize]}};
+  assert.doesNotThrow(()=>verifyAtomicLaunchReceipt(recovered,d,995n));
+  assert.throws(()=>verifyAtomicLaunchReceipt(recovered,d,994n),/minimum/);
 });
 test("a conversion cannot silently spend another token or change its custody", () => {
   const other = Keypair.generate().publicKey.toBase58(),

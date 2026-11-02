@@ -9,6 +9,7 @@ import {
   cloutPaymentSignature,
 } from "../lib/launch-signatures.mjs";
 export type Coin = {
+  settlementSignatures?:string[];
   feeTreasury:string;rewardPolicyHash:string|null;
   mint: string;
   name: string;
@@ -51,6 +52,10 @@ export type Review = {
   id: string;
   phase?:"conversion"|"launch";
   atomicSolBuy?:boolean;
+  bundle?:boolean;
+  wires?:string[];
+  creationIndex?:number;
+  tipLamports?:string;
   fundingId?:string|null;
   mint: string;
   wire: string;
@@ -73,6 +78,7 @@ type Saved = {
   fundingSignature?:string;
   fundingSolRaw?: string; // exact SOL amount the saved conversion was for
   signed?: Uint8Array;
+  bundleSigned?: Uint8Array[];
   signature?: string;
   // Dead attempts (failed onchain or expired unsent), kept for reconciliation only.
   retired?: { reviewId: string; signature: string; status: string; at: number }[];
@@ -350,6 +356,7 @@ export function useSolanaLaunch() {
       { reviewId: saved.review.id, signature: saved.signature, status, at: Date.now() },
     ].slice(-5);
     delete saved.signed;
+    delete saved.bundleSigned;
     delete saved.signature;
     delete saved.review;
     await launchDraft("put", "mainnet:" + saved.creator, saved);
@@ -357,7 +364,7 @@ export function useSolanaLaunch() {
   async function follow(saved: Saved) {
     const r = await api<{ status: string; coin?: Coin; funding?:{id:string;signature:string};error?: string }>(
       "/api/launch?action=submit",
-      { id: saved.review!.id, wire: to64(saved.signed!) },
+      { id: saved.review!.id, wire: to64(saved.signed!),wires:saved.bundleSigned?.map(to64) },
     );
     if(r.status==="converted"&&r.funding){await converted(saved,r.funding);return;}
     if (r.status === "confirmed" && r.coin) {
@@ -400,35 +407,32 @@ export function useSolanaLaunch() {
             "This review expired. Edit the details and prepare a fresh review; no transaction was submitted.",
           );
         const signer = connected.wallet.features["solana:signTransaction"] as {
-          signTransaction: (x: {
+          signTransaction: (...x: {
             account: Account;
             transaction: Uint8Array;
             chain: string;
-          }) => Promise<{ signedTransaction: Uint8Array }[]>;
+          }[]) => Promise<{ signedTransaction: Uint8Array }[]>;
         };
         if (!signer)
           throw Error("This wallet cannot sign Solana transactions.");
         setStage("wallet");
-        setMessage(saved.review.phase==="conversion"?"Review the SOL-to-NEAR conversion. Coin creation follows in a separate approval.":"Review coin creation in your Solana wallet.");
-        const signed = await signer.signTransaction({
-          account: connected.account,
-          transaction: from64(saved.review.wire),
-          chain: "solana:mainnet",
-        });
-        if (!signed[0]?.signedTransaction)
-          throw Error("The wallet did not return a signed transaction.");
-        const decoded = getTransactionDecoder().decode(
-          signed[0].signedTransaction,
-        );
-        let wire:Uint8Array;
-        if(saved.review.phase==='conversion')wire=new Uint8Array(signed[0].signedTransaction);
-        else {
-        const mintSignature = new Uint8Array(await crypto.subtle.sign({name:'Ed25519'},saved.privateKey,new Uint8Array(decoded.messageBytes)));
-        wire=new Uint8Array(getTransactionEncoder().encode({...decoded,signatures:{...decoded.signatures,[saved.publicKey]:mintSignature}}));
+        setMessage(saved.review.bundle?'Review the complete launch bundle: account setup, fee-locked creation and your initial buy.':saved.review.phase==="conversion"?"Review the saved SOL-to-NEAR conversion.":"Review coin creation in your Solana wallet.");
+        const reviews=saved.review.wires||[saved.review.wire];
+        const signed=await signer.signTransaction(...reviews.map(wire=>({account:connected.account,transaction:from64(wire),chain:'solana:mainnet'})));
+        if(signed.length!==reviews.length||signed.some(r=>!r.signedTransaction))throw Error('The wallet did not sign the complete launch. Nothing was submitted.');
+        const approved:Uint8Array[]=[];
+        for(let i=0;i<signed.length;i++){
+          const decoded=getTransactionDecoder().decode(signed[i].signedTransaction);
+          let wire=new Uint8Array(signed[i].signedTransaction);
+          if(saved.publicKey in decoded.signatures){
+            const mintSignature=new Uint8Array(await crypto.subtle.sign({name:'Ed25519'},saved.privateKey,new Uint8Array(decoded.messageBytes)));
+            wire=new Uint8Array(getTransactionEncoder().encode({...decoded,signatures:{...decoded.signatures,[saved.publicKey]:mintSignature}}));
+          }
+          walletSignedLaunchMatches(from64(reviews[i]),wire);approved.push(wire);
         }
-        walletSignedLaunchMatches(from64(saved.review.wire), wire);
-        saved.signed = wire;
-        saved.signature = cloutPaymentSignature(wire);
+        saved.signed=approved[saved.review.creationIndex??0];
+        if(saved.review.bundle)saved.bundleSigned=approved;else delete saved.bundleSigned;
+        saved.signature=cloutPaymentSignature(saved.signed);
         await launchDraft("put", key, saved);
         if (current.current?.account.address === owner)
           setSignature(saved.signature);

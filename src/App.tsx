@@ -721,7 +721,7 @@ export default function App() {
                       />
                       <small>
                         0 skips the buy. Purchased coins go to your Solana
-                        wallet. New SOL buys use one combined swap-and-launch transaction when its checks pass. Account rent and network fees are extra.
+                        wallet. Review the complete launch bundle together. Account rent, network fees and the disclosed relay tip are extra.
                       </small>
                     </label>
                     <button
@@ -761,7 +761,8 @@ export default function App() {
                       ["Creator fee", launch.review.creatorFeeBps / 100 + "%"],
                       [launch.review.feeTreasury?"Reward treasury":"Original fee recipient", launch.review.feeTreasury||launch.review.creator],
                       ["Initial buy", launch.review.devBuySolRaw!==undefined?atoms(launch.review.devBuySolRaw)+" SOL"+(launch.review.fundingId?" · converted":""):atoms(launch.review.devBuyRaw)+" NEAR · saved review"],
-                      ["Approval",launch.review.atomicSolBuy?"One transaction · SOL buy & launch":launch.review.phase==="conversion"?"Saved SOL conversion":"Coin creation & initial buy"],
+                      ["Approval",launch.review.bundle?`One launch bundle · ${launch.review.wires?.length} transactions`:launch.review.atomicSolBuy?"SOL buy & launch":launch.review.phase==="conversion"?"Saved SOL conversion":"Coin creation & initial buy"],
+                      ...(launch.review.tipLamports?[["Relay tip",atoms(launch.review.tipLamports)+" SOL · included in total"]]:[]),
                       [
                         "Estimated SOL debit",
                         atoms(launch.review.estimatedSolRaw) + " SOL",
@@ -824,7 +825,7 @@ export default function App() {
                       <div className="funding-note">
                         <Icon name="shield" />
                         <p>
-                          {launch.review.atomicSolBuy?'One transaction converts the entered SOL amount, creates your NEAR-paired coin and makes the initial buy. These operations succeed together or revert; network fees can still apply.':launch.review.phase==='conversion'?'This saved review converts SOL to NEAR. Coin creation requires a separate approval. Converted NEAR stays in your wallet if you stop.':'This transaction creates your coin and locks its reviewed fee recipient. Your wallet shows the initial buy, if set, plus rent and network fees.'}
+                          {launch.review.bundle?'Approve the complete bundle together. It prepares token accounts, creates your coin with its fees locked, and completes the initial buy. The swap and buy share one transaction; the bundle is submitted only through Jito.':launch.review.atomicSolBuy?'This transaction converts SOL, creates your coin and makes the initial buy. Network fees can apply.':launch.review.phase==='conversion'?'This saved review converts SOL to NEAR. Coin creation requires a separate approval. Converted NEAR stays in your wallet if you stop.':'This transaction creates your coin and locks its reviewed fee recipient. Your wallet shows the initial buy, if set, plus rent and network fees.'}
                         </p>
                       </div>
                       <button
@@ -836,7 +837,7 @@ export default function App() {
                           ? "Waiting for wallet…"
                           : now > launch.review.expiresAt
                             ? "Review expired"
-                            : launch.review.atomicSolBuy?"Approve SOL buy & launch":launch.review.phase==="conversion"?"Approve saved conversion":"Approve coin creation"}
+                            : launch.review.bundle?"Approve launch bundle":launch.review.atomicSolBuy?"Approve SOL buy & launch":launch.review.phase==="conversion"?"Approve saved conversion":"Approve coin creation"}
                         <Icon name="wallet" />
                       </button>
                       <button
@@ -908,7 +909,7 @@ export default function App() {
                 ],
                 [
                   "Who receives the initial buy?",
-                  "Your connected Solana launching wallet. Enter the initial buy in SOL. New buys combine the internal NEAR conversion, creation and purchase in one transaction, with approval available only after the full simulation and wallet-capacity checks pass. Existing finalized conversions retain their saved recovery path. An onchain failure can still incur its network fee.",
+                  "Your connected Solana launching wallet. Enter the initial buy in SOL. Setup, fee-locked creation and the purchase are reviewed together as a Jito bundle. The SOL conversion and buy are in the same transaction. Every transaction must confirm before the coin is published. Existing finalized conversions keep their recovery path. Network fees can apply; relay bundles also carry a small disclosed tip.",
                 ],
                 [
                   "Is this an official NEAR or Pump.fun product?",
@@ -1284,6 +1285,7 @@ function CoinPage({
             >
               Launch receipt <Icon name="arrow" size={15} />
             </a>
+            {c.settlementSignatures?.map((signature,i)=>signature===c.signature?null:<a className="text-link" key={signature} href={'https://solscan.io/tx/'+signature} target="_blank" rel="noreferrer">{i===0?'Account setup receipt':'Initial buy receipt'} <Icon name="arrow" size={15}/></a>)}
           </section>
         </aside>
       </div>
