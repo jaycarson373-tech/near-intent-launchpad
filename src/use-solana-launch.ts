@@ -70,6 +70,7 @@ type Saved = {
   review?: Review;
   fundingId?:string;
   fundingSignature?:string;
+  fundingSolRaw?: string; // exact SOL amount the saved conversion was for
   signed?: Uint8Array;
   signature?: string;
   // Dead attempts (failed onchain or expired unsent), kept for reconciliation only.
@@ -82,6 +83,23 @@ const deadMessage = (status: string) =>
   status === "failed"
     ? "Failed onchain, so nothing was created. Start a new launch to retry."
     : "Expired before landing, so nothing was charged. Start a new launch to retry.";
+// Same format the server accepts (lib/launch-model.js units); null if invalid.
+const lamports = (value: string) => {
+  if (!/^(0|[1-9]\d{0,7})(\.\d{1,9})?$/.test(value)) return null;
+  const [whole, fraction = ""] = value.split(".");
+  return String(BigInt(whole) * 1000000000n + BigInt(fraction.padEnd(9, "0")));
+};
+// Unlinks a finalized conversion that no longer matches the launch. Its NEAR stays
+// in the wallet; the receipt is archived for reconciliation.
+const dropFunding = (saved: Saved) => {
+  saved.retired = [
+    ...(saved.retired || []),
+    { reviewId: saved.fundingId || "", signature: saved.fundingSignature || "", status: "conversion-unused", at: Date.now() },
+  ].slice(-5);
+  delete saved.fundingId;
+  delete saved.fundingSignature;
+  delete saved.fundingSolRaw;
+};
 type Account = { address: string; chains: readonly string[] };
 type Connected = { wallet: Wallet; account: Account };
 const from64 = (v: string) => Uint8Array.from(atob(v), (c) => c.charCodeAt(0)),
@@ -245,6 +263,8 @@ export function useSolanaLaunch() {
     setMessage("Checking the SOL purchase route and simulating coin creation.");
     const creator = connected.account.address,
       key = "mainnet:" + creator;
+    let amountChanged = false,
+      held: Saved | undefined;
     try {
       let saved = (await launchDraft("get", key)) as Saved | undefined;
       if (saved?.signed) {
@@ -262,7 +282,18 @@ export function useSolanaLaunch() {
           new Uint8Array(await crypto.subtle.exportKey("raw", pair.publicKey)),
         );
         saved = { creator, privateKey: pair.privateKey, publicKey, details };
-      } else saved.details = details;
+      } else {
+        // A finalized conversion only funds the exact SOL amount it converted. A new
+        // nonzero amount needs its own wallet-approved conversion; the old NEAR stays.
+        const next = lamports(details.devBuySol),
+          converted = saved.fundingSolRaw ?? lamports(saved.details.devBuySol);
+        if (saved.fundingId && next && next !== "0" && next !== converted) {
+          dropFunding(saved);
+          amountChanged = true;
+        }
+        saved.details = details;
+      }
+      held = saved;
       await launchDraft("put", key, saved);
       const result = await api<Review>("/api/launch?action=prepare", {
         ...details,
@@ -279,17 +310,30 @@ export function useSolanaLaunch() {
       setReview(result);
       setStage("review");
       setMessage(
-        "Simulation passed. Review the costs before approving in your wallet.",
+        amountChanged
+          ? "New amount needs its own SOL conversion. Your earlier NEAR stays in your wallet."
+          : "Simulation passed. Review the costs before approving in your wallet.",
       );
     } catch (e) {
-      setMessage((e as Error).message);
+      // Older drafts did not record the converted amount; the server's mismatch
+      // answer is then the signal. Nothing is requested until the user prepares again.
+      if (
+        held?.fundingId &&
+        /saved SOL conversion belongs to another/.test((e as Error).message)
+      ) {
+        dropFunding(held);
+        await launchDraft("put", key, held);
+        setMessage(
+          "This amount needs a new SOL conversion. Your earlier NEAR stays in your wallet. Prepare again.",
+        );
+      } else setMessage((e as Error).message);
     } finally {
       lock.current = false;
       setBusy(false);
     }
   }
   async function converted(saved:Saved,funding:{id:string;signature:string}){
-    saved.fundingId=funding.id;saved.fundingSignature=funding.signature;delete saved.signed;delete saved.signature;delete saved.review;await launchDraft('put','mainnet:'+saved.creator,saved);
+    saved.fundingId=funding.id;saved.fundingSignature=funding.signature;saved.fundingSolRaw=saved.review?.devBuySolRaw;delete saved.signed;delete saved.signature;delete saved.review;await launchDraft('put','mainnet:'+saved.creator,saved);
     if(current.current?.account.address!==saved.creator)return;
     setReview(null);setSignature('');setStage('idle');setMessage('SOL conversion finalized. Preparing coin creation; no second SOL conversion is requested.');
     const result=await api<Review>('/api/launch?action=prepare',{...saved.details,creator:saved.creator,mint:saved.publicKey,fundingId:saved.fundingId});saved.review=result;await launchDraft('put','mainnet:'+saved.creator,saved);
