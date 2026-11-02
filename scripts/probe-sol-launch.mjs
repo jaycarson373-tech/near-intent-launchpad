@@ -110,7 +110,7 @@ const launch = await instructions(
     sigVerify: false,
     commitment: "confirmed",
     minContextSlot: block.context.slot,
-    accounts: { encoding: "base64", addresses: [purchased.toBase58()] },
+    accounts: { encoding: "base64", addresses: [purchased.toBase58(),pump.feeSharingConfigPda(mint).toBase58(),pump.bondingCurvePda(mint).toBase58()] },
   });
 if (result.value.err) {
   console.log(
