@@ -1,6 +1,10 @@
 # Intent Pad
 
-Native NEAR token launchpad.
+NEAR-paired Pump.fun launches on Solana, with optional NEAR Intents funding.
+
+The current release uses Wallet Standard signing, private durable reviews/outbox storage, finalized launch receipts and real coin pages. See [the release and configuration notes](RELEASE_NEAR_SOLANA.md) for the implemented flow, environment variables, verification and remaining funded acceptance.
+
+The sections below document the retained, earlier native NEAR implementation. Its contracts, read/verification APIs, history and share-link inspection remain available; it is not the new Solana creation flow.
 
 ## Native launch flow
 

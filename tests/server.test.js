@@ -15,6 +15,12 @@ test('Railway serves the built app, pinned WASM, API boundaries and health',asyn
   assert.equal((await fetch(base+'/api/near',{method:'POST'})).status,405);
   assert.equal((await fetch(base+'/api/missing')).status,404);
   assert.equal((await fetch(base+'/missing.js')).status,404);
+  assert.equal((await fetch(base+'/launch')).status,200);
+  assert.equal((await fetch(base+'/coin/any')).status,200);
+  assert.equal((await fetch(base+'/api/metadata?id=bad')).status,404);
+  assert.equal((await fetch(base+'/api/coin?mint=not-a-public-key')).status,400);
+  assert.equal((await fetch(base+'/api/intents')).status,405);
+  assert.equal((await fetch(base+'/api/launch?action=prepare',{method:'POST',headers:{origin:'https://unrelated.example','content-type':'application/json'},body:'{}'})).status,403);
   assert.equal((await fetch(base+'/',{method:'POST'})).status,405);
  }finally{await new Promise(resolve=>server.close(resolve));await rm(dir,{recursive:true})}
 });

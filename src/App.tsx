@@ -1,32 +1,1332 @@
-import {useEffect,useMemo,useRef,useState} from 'react'
-import '@near-wallet-selector/modal-ui/styles.css'
-import {useNearLaunch,type LaunchReceipt} from './use-near-launch'
-import {EMPTY_DRAFT,formatNear,tokenPlan,type TokenDraft} from './near-model'
-import './App.css'
-type Market={mint:string;name:string;symbol:string;price:number|null;updatedAt:string|null;status:string}
-const KEY='intentpad.launch-brief.v1'
-function saved():TokenDraft{try{const d=JSON.parse(localStorage.getItem(KEY)||'null');if(d&&typeof d.name==='string'&&typeof d.ticker==='string')return {...EMPTY_DRAFT,...d,slug:typeof d.slug==='string'?d.slug:'',supply:typeof d.supply==='string'?d.supply:EMPTY_DRAFT.supply,decimals:Number.isInteger(d.decimals)?d.decimals:18}}catch{}return EMPTY_DRAFT}
-const price=(n:number|null)=>typeof n==='number'&&Number.isFinite(n)&&n>0?n<0.01?'$'+n.toPrecision(4):new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',maximumFractionDigits:4}).format(n):'Unavailable'
-const steps=[{name:'Configure',title:'Set the token identity and supply.',text:'Choose a name, ticker, account prefix, whole-number supply and decimal precision. Review the complete native NEAR contract account before deployment.'},{name:'Approve',title:'Deploy from your NEAR wallet.',text:'The wallet reviews one transaction that creates the token account, funds storage, deploys the standard contract and initializes your supply.'},{name:'Verify',title:'A token account with on-chain proof.',text:'Intent Pad checks the finalized transaction, contract code and token metadata before recording a successful launch. Trading liquidity is a separate step.'}]
-export default function App(){const near=useNearLaunch();const [draft,setDraft]=useState<TokenDraft>(saved),[markets,setMarkets]=useState<Market[]>([]),[marketState,setMarketState]=useState('loading'),[query,setQuery]=useState(''),[sort,setSort]=useState('featured'),[limit,setLimit]=useState(8),[step,setStep]=useState(0),[notice,setNotice]=useState(''),[review,setReview]=useState(false),[selected,setSelected]=useState<Market|null>(null),[tab,setTab]=useState('directory'),[inspect,setInspect]=useState(''),[receipt,setReceipt]=useState<LaunchReceipt|null>(null)
- const studio=useRef<HTMLDialogElement>(null),details=useRef<HTMLDialogElement>(null)
- const loadMarkets=()=>{setMarketState('loading');fetch('/api/catalog',{signal:AbortSignal.timeout(22000)}).then(async r=>{if(!r.ok)throw new Error();return r.json()}).then(d=>{if(!Array.isArray(d.tokens))throw new Error();setMarkets(d.tokens);setMarketState('ready')}).catch(()=>{setMarkets([]);setMarketState('error')})}
- useEffect(()=>{loadMarkets()},[])
- const list=useMemo(()=>markets.filter(m=>[m.name,m.symbol,m.mint].join(' ').toLowerCase().includes(query.toLowerCase())).sort((a,b)=>sort==='price'?(b.price??-1)-(a.price??-1):sort==='featured'?Number(b.mint==='wrap.near')-Number(a.mint==='wrap.near')||Number(b.price!==null)-Number(a.price!==null)||a.symbol.localeCompare(b.symbol):a.symbol.localeCompare(b.symbol)),[markets,query,sort])
- const supplyLabel=Number.isFinite(Number(draft.supply))?Number(draft.supply).toLocaleString('en-US'):'Invalid supply'
- const change=(patch:Partial<TokenDraft>)=>{setDraft(previous=>({...previous,...patch}));setReview(false)}
- const reviewLaunch=(e:React.FormEvent)=>{e.preventDefault();if(!near.account){studio.current?.close();void near.connect();setNotice('Connect a named NEAR wallet, then review your deployment.');return}try{tokenPlan(draft,near.account);localStorage.setItem(KEY,JSON.stringify(draft));setReview(true);setNotice('Token details saved. Review the deployment before wallet approval.')}catch(e){setNotice(e instanceof Error?e.message:'Could not prepare the token.') }}
- const plan=useMemo(()=>{try{return near.account?tokenPlan(draft,near.account):null}catch{return null}},[draft,near.account])
- const deploy=async()=>{const result=await near.launch(draft);if(result){setReceipt(result);setTab('yours');studio.current?.close();setNotice('Your native NEAR token is deployed and verified.')}}
- const inspectToken=async(account:string)=>{try{const r=await fetch('/api/near?'+new URLSearchParams({action:'token',account,network:near.network}));const d=await r.json();if(!r.ok)throw new Error(d.error);setSelected({mint:account,name:d.metadata.name,symbol:d.metadata.symbol,price:null,updatedAt:d.verifiedAt,status:'NEP-141 verified'});details.current?.showModal()}catch(e){setNotice(e instanceof Error?e.message:'Token verification unavailable.')}}
- const share=async(r:LaunchReceipt)=>{const url=new URL(window.location.href);url.search='';url.hash='';url.searchParams.set('token',r.account);try{await navigator.clipboard.writeText(url.href);setNotice('Token page link copied.')}catch{setNotice(url.href)}}
- useEffect(()=>{const account=new URLSearchParams(window.location.search).get('token');if(account)void inspectToken(account)},[])
- return <div className="site"><header className="header"><a href="#top" className="brand"><img src="/brand.svg" width="35" height="35" alt=""/><span>intentpad<small>NATIVE NEAR TOKEN LAUNCHPAD</small></span></a><nav><a href="#markets">Tokens</a><a href="#flow">Launch flow</a><a href="#economy">Token economy</a></nav><button className="button button-dark" onClick={()=>void near.connect()}>{near.account?near.account:'Connect NEAR wallet'}</button></header><main id="top"><section className="hero"><div className="hero-copy"><div className="kicker"><span className="dot"/> INTENT PAD / NEAR {near.network.toUpperCase()}</div><h1>Launch<br/><em>native NEAR</em><br/>tokens.</h1><p>Define the token. Approve the deployment.<br/>Create a native NEAR token through Intent Pad, directly from your wallet.</p><div className="hero-actions"><button className="button button-dark" onClick={()=>{setReview(false);studio.current?.showModal()}}>Create a NEAR token</button><a href="#markets" className="button button-outline">Explore NEAR tokens</a></div><div className="hero-foot"><span>NEP-141 standard</span><span>Wallet-approved deployment</span><span>On-chain verification</span></div></div><div className="launch-visual"><div className="visual-head"><span>YOUR NATIVE NEAR TOKEN</span><span>NEP-141</span></div><div className="launch-token"><div className="token-emblem">{draft.ticker.slice(0,2)||'IP'}</div><h2>{draft.name||'Your token'}</h2><p>{draft.ticker?'$'+draft.ticker:'Create its identity. Define the supply.'}</p><div className="pair-line"><span>DEPLOYMENT NETWORK</span><b>NEAR</b><span className="near-mark" aria-hidden="true">N</span></div><div className="brief-status"><span className="dot"/><span>{receipt?'Deployment verified':draft.name?'Token configured':'Ready to configure'}</span><button onClick={()=>{setReview(false);studio.current?.showModal()}}>Open studio</button></div></div><div className="visual-flow"><span><b>01</b> Configure</span><i/><span><b>02</b> Approve</span><i/><span><b>03</b> Verify</span></div><div className="visual-orbit orbit-a"/><div className="visual-orbit orbit-b"/></div></section><div className="status-strip"><div><span>BLOCKCHAIN</span><strong>NEAR {near.network}</strong></div><div><span>TOKEN STANDARD</span><strong>NEP-141 / NEP-148</strong></div><div><span>SUPPORTED DIRECTORY</span><strong>{marketState==='ready'?markets.length+' NEAR assets':marketState==='loading'?'Connecting':'Unavailable'}</strong></div><div><span>INTENT PAD CREATOR FEES</span><strong>100% buyback & burn</strong></div></div>
- <section className="markets-section" id="markets"><div className="section-title"><div><span className="kicker">NEAR ECOSYSTEM / TOKEN DIRECTORY</span><h2>Native NEAR tokens.</h2></div><p>Explore supported NEAR assets<br/>or view your confirmed launches.</p></div><div className="directory-tabs"><button className={tab==='directory'?'active':''} onClick={()=>setTab('directory')}>NEAR directory</button><button className={tab==='yours'?'active':''} onClick={()=>setTab('yours')}>Your launches <span>{near.receipts.length}</span></button></div>{tab==='directory'?<><div className="market-tools"><label><span className="sr-only">Search tokens</span><input type="search" placeholder="Search ticker or NEAR contract" value={query} onChange={e=>setQuery(e.target.value)}/></label><select aria-label="Sort tokens" value={sort} onChange={e=>setSort(e.target.value)}><option value="featured">Featured</option><option value="symbol">Alphabetical</option><option value="price">Price</option></select><button className="button button-outline" disabled={marketState==='loading'} onClick={loadMarkets}>Refresh</button></div><div className="market-grid">{marketState==='loading'?<div className="feed-state"><span className="loader"/>Loading NEAR assets.</div>:marketState==='error'?<div className="feed-state"><strong>Token directory unavailable.</strong><span>Refresh to reconnect.</span></div>:!list.length?<div className="feed-state">No matching tokens.</div>:list.slice(0,limit).map(m=><button className="market-card" key={m.mint} onClick={()=>{setSelected(m);details.current?.showModal()}}><div className="card-head"><span className="coin-mark">{m.symbol.slice(0,2)}</span><span><strong>{m.name}</strong><small>NEAR TOKEN</small></span></div><div className="card-values"><div><span>PROVIDER PRICE / USD</span><b>{price(m.price)}</b></div></div><div className="contract-caption">{m.mint}</div><div className="card-bottom"><span>NEAR NETWORK</span><span>1CLICK DIRECTORY</span></div></button>)}</div>{list.length>limit&&<button className="button button-outline show-more" onClick={()=>setLimit(limit+12)}>Show more tokens ({list.length-limit} remaining)</button>}<p className="data-note">External supported assets from the 1Click directory. Prices are provider observations. New tokens need separate liquidity and route support to trade.</p></>:<div className="launches-grid">{near.receipts.length?near.receipts.map(r=><article className="confirmed-token" key={r.account}><span className="kicker">CONFIRMED NEAR DEPLOYMENT</span><h3>{r.metadata.name} <small>${r.metadata.symbol}</small></h3><div className="mint-address">{r.account}</div><p>Confirmed {new Date(r.verifiedAt).toLocaleString()} / {r.network}</p><div className="brief-actions"><button className="button button-dark" onClick={()=>void inspectToken(r.account)}>View token</button><button className="button button-outline" onClick={()=>void share(r)}>Copy token link</button><a className="button button-outline" href={(r.network==='testnet'?'https://testnet.nearblocks.io':'https://nearblocks.io')+'/txns/'+r.transactionHash} target="_blank" rel="noreferrer">Transaction</a></div></article>):<div className="feed-state"><strong>Your first NEAR token starts here.</strong><span>Only verified wallet deployments are recorded as launches.</span><button className="button button-dark" onClick={()=>studio.current?.showModal()}>Create a token</button></div>}</div>}<form className="contract-lookup" onSubmit={e=>{e.preventDefault();void inspectToken(inspect)}}><label htmlFor="lookup">Inspect a NEAR token contract</label><div><input id="lookup" value={inspect} onChange={e=>setInspect(e.target.value)} placeholder="token.account.near" required/><button className="button button-outline">Verify token</button></div></form></section>
- <section className="flow-section" id="flow"><div className="section-title"><div><span className="kicker">THE NATIVE NEAR LAUNCH FLOW</span><h2>From token details<br/>to a NEAR contract.</h2></div><p>Every launch requires wallet approval.<br/>The token supply is initialized to your account.</p></div><div className="flow-workspace"><div className="flow-nav" role="tablist" aria-label="Launch flow">{steps.map((s,i)=><button role="tab" id={'flow-'+i} aria-selected={step===i} aria-controls="flow-panel" key={s.name} onClick={()=>setStep(i)}><span>0{i+1}</span><strong>{s.name}</strong><small>{i===0?'Identity + supply':i===1?'Wallet deployment':'On-chain proof'}</small></button>)}</div><div className="flow-panel" role="tabpanel" id="flow-panel" aria-labelledby={'flow-'+step}><span className="kicker">0{step+1} / {steps[step].name.toUpperCase()}</span><h3>{steps[step].title}</h3><p>{steps[step].text}</p><button className="button button-dark" onClick={()=>studio.current?.showModal()}>Open token studio</button></div></div></section>
- <section className="economy-section" id="economy"><div><span className="kicker">INTENT PAD TOKEN ECONOMY</span><h2>Creator fees.<br/><em>Buyback & burn.</em></h2><p>100% of Intent Pad’s token creator fees are designated for purchasing Intent Pad and burning the purchased tokens.</p><p className="economy-note">This mechanism applies to the Intent Pad token. Fee collection and burns require its mint and worker configuration. Native token deployments charge no Intent Pad platform fee in this version.</p></div><div className="allocation"><span>CREATOR-FEE ALLOCATION</span><strong>100<small>%</small></strong><div className="allocation-line"/><div className="allocation-label"><b>Buyback + permanent burn</b><span>No holder-airdrop split</span></div><div className="receipt"><span className="receipt-mark">IP</span><span><b>Public receipts after activation.</b><small>No simulated fees or burns.</small></span></div></div></section>
- <section className="brief-section"><div><span className="kicker">YOUR TOKEN WORKSPACE</span><h2>{draft.name||'Create your NEAR token.'}</h2><p>{draft.ticker?'$'+draft.ticker+' / '+supplyLabel+' tokens / '+draft.decimals+' decimals':'Set the identity and supply. Review the deployment in your wallet.'}</p></div><div className="brief-actions"><button className="button button-dark" onClick={()=>studio.current?.showModal()}>Open token studio</button>{near.account&&<button className="text-button" onClick={()=>void near.disconnect()}>Disconnect {near.account}</button>}</div></section>
- <section className="docs-section" id="docs"><div><span className="kicker">INTENT PAD / DOCUMENTATION</span><h2>Native NEAR.<br/>Wallet controlled.</h2></div><div className="faq"><details open><summary>What does the launch create?</summary><p>A native NEAR fungible-token contract using NEAR’s standard NEP-141 implementation, with your name, symbol, decimals and initial supply. The initial supply belongs to the approving wallet. A token account is created under that wallet’s named NEAR account.</p></details><details><summary>What NEAR is required to launch?</summary><p>The review shows the funding amount for the new token contract’s code and state, plus wallet gas. This funding goes to the token account and is not an Intent Pad service fee. The deployed account has no added access keys; its contract cannot be upgraded through an admin key.</p></details><details><summary>Does creation make the token tradable?</summary><p>Creating the token does not create a liquidity pool. Trading and NEAR Intents routing require liquidity and provider asset support as separate steps.</p></details><details><summary>When is a launch marked successful?</summary><p>After the wallet’s transaction finalizes and the site verifies the deployed code, metadata and total supply. A saved draft or wallet request is never shown as a completed launch.</p></details><details><summary>Can I use an implicit wallet account?</summary><p>The direct deployment flow requires a named NEAR account, because the new token contract is created as its subaccount. A 64-character implicit account cannot fit a valid child account under NEAR’s account-length limit.</p></details></div></section></main><footer><a className="brand" href="#top"><img src="/brand.svg" width="26" height="26" alt=""/>intentpad</a><span>Native NEAR token launchpad / NEP-141</span><a href="#docs">Documentation</a></footer>
- <dialog ref={studio} className="studio" aria-labelledby="studio-title"><div className="dialog-head"><span className="kicker">INTENT PAD / NEAR TOKEN STUDIO</span><button aria-label="Close token studio" disabled={near.busy} onClick={()=>studio.current?.close()}>×</button></div><h2 id="studio-title">{review?'Review your deployment.':'Create your NEAR token.'}</h2><p>{near.account?'Connected: '+near.account:'Connect a named NEAR wallet to review the deployment.'}</p>{!review?<form onSubmit={reviewLaunch}><div className="studio-fields"><label>Token name<input required maxLength={40} value={draft.name} onChange={e=>change({name:e.target.value})} placeholder="Your token"/></label><label>Ticker<input required maxLength={10} pattern="[A-Za-z0-9]{1,10}" value={draft.ticker} onChange={e=>change({ticker:e.target.value.toUpperCase()})} placeholder="TOKEN"/></label><label className="wide">Token account prefix<input required maxLength={16} pattern="[a-z][a-z0-9-]{1,15}" value={draft.slug} onChange={e=>change({slug:e.target.value.toLowerCase()})} placeholder="your-token"/><small>{near.account?(draft.slug||'your-token')+'.'+near.account:'The token account will be created under your named NEAR wallet.'}</small></label><label>Whole-number supply<input required inputMode="numeric" pattern="[1-9][0-9]*" value={draft.supply} onChange={e=>change({supply:e.target.value})}/></label><label>Decimals<input required type="number" min="0" max="24" step="1" value={draft.decimals} onChange={e=>change({decimals:Number(e.target.value)})}/></label></div><div className="studio-pair"><span>Native NEAR / {near.network}</span><b>NEP-141</b></div><button className="button button-dark" type="submit">{near.account?'Review token deployment':'Connect NEAR wallet'}</button></form>:<div className="deployment-review"><div><span>TOKEN ACCOUNT</span><b>{plan?.contract}</b></div><div><span>INITIAL SUPPLY</span><b>{supplyLabel} {draft.ticker}</b></div><div><span>DECIMALS</span><b>{draft.decimals}</b></div><div><span>CONTRACT FUNDING</span><b>{near.config?formatNear(near.config.deposit)+' NEAR':'Template unavailable'}</b></div><div><span>PLATFORM FEE</span><b>0 NEAR</b></div><p>Creates the account, funds contract storage, deploys the pinned token code and initializes the supply to {near.account}. Wallet approval is required. Gas is additional.</p><button className="button button-dark" disabled={near.busy||!near.config||!plan} onClick={()=>void deploy()}>{near.busy?'Checking deployment':'Approve deployment in wallet'}</button><button className="text-button" disabled={near.busy} onClick={()=>setReview(false)}>Edit token details</button></div>}<p className="wallet-message" role="status">{near.message}</p></dialog>
- <dialog ref={details} className="studio market-detail" aria-labelledby="market-title"><div className="dialog-head"><span className="kicker">NEAR TOKEN CONTRACT</span><button aria-label="Close token details" onClick={()=>details.current?.close()}>×</button></div><h2 id="market-title">{selected?.name}</h2><p>${selected?.symbol} / NEAR {near.network}</p><div className="mint-address">{selected?.mint}</div><div className="detail-stats"><div><span>PROVIDER PRICE / USD</span><b>{price(selected?.price??null)}</b></div><div><span>NETWORK</span><b>NEAR</b></div></div>{selected&&<a className="button button-dark" href={(near.network==='testnet'?'https://testnet.nearblocks.io':'https://nearblocks.io')+'/address/'+encodeURIComponent(selected.mint)} target="_blank" rel="noreferrer">View NEAR contract</a>}</dialog>{(notice||near.message)&&<div className="toast" role="status">{notice||near.message}<button aria-label="Dismiss notification" onClick={()=>{setNotice('');near.dismiss()}}>×</button></div>}</div>
+import { useEffect, useState } from "react";
+import type { FormEvent, MouseEvent } from "react";
+import {
+  useSolanaLaunch,
+  api,
+  EMPTY_COIN,
+  type Coin,
+  type CoinDraft,
+} from "./use-solana-launch";
+import { useRoute, coinPath } from "./navigation";
+import { Icon, IntentMark, IntentMesh } from "./icons";
+import { price, safeIcon } from "./market-model";
+import { Funding } from "./Funding";
+import { Modal } from "./Modal";
+import { NativeReceipt } from "./NativeReceipt";
+import "./App.css";
+const DRAFT_KEY = "intent-pad-solana-editor.v1",
+  YEAR = new Date().getFullYear();
+const atoms = (raw: string, dec = 9) => {
+  if (!/^\d+$/.test(raw)) return "—";
+  const n = BigInt(raw),
+    s = 10n ** BigInt(dec),
+    f = (n % s).toString().padStart(dec, "0").replace(/0+$/, "");
+  return (n / s).toString() + (f ? "." + f : "");
+};
+const short = (s: string) => s.slice(0, 6) + "…" + s.slice(-5);
+function initialDraft(): CoinDraft {
+  try {
+    return {
+      ...EMPTY_COIN,
+      ...JSON.parse(localStorage.getItem(DRAFT_KEY) || "{}"),
+    };
+  } catch {
+    return EMPTY_COIN;
+  }
+}
+function CoinArt({
+  coin,
+  large = false,
+}: {
+  coin: Pick<Coin, "name" | "symbol" | "image">;
+  large?: boolean;
+}) {
+  const [failed, setFailed] = useState(false);
+  return (
+    <span className={large ? "token-icon large" : "token-icon"}>
+      {safeIcon(coin.image) && !failed ? (
+        <img
+          src={coin.image}
+          alt={coin.name + " logo"}
+          onError={() => setFailed(true)}
+        />
+      ) : (
+        <span>{coin.symbol.slice(0, 3) || <IntentMark />}</span>
+      )}
+    </span>
+  );
+}
+function Address({
+  value,
+  label,
+  onCopy,
+}: {
+  value: string;
+  label: string;
+  onCopy: (s: string) => void;
+}) {
+  return (
+    <button
+      className="copy-address"
+      title={value}
+      aria-label={"Copy " + label}
+      onClick={() =>
+        void navigator.clipboard
+          .writeText(value)
+          .then(() => onCopy("Address copied."))
+          .catch(() => onCopy("Copy this address: " + value))
+      }
+    >
+      <code>{value}</code>
+      <Icon name="copy" size={15} />
+    </button>
+  );
+}
+function Empty({
+  title,
+  children,
+  action,
+}: {
+  title: string;
+  children: React.ReactNode;
+  action?: React.ReactNode;
+}) {
+  return (
+    <div className="empty-state">
+      <span className="empty-icon">
+        <Icon name="layers" size={24} />
+      </span>
+      <h3>{title}</h3>
+      <p>{children}</p>
+      {action}
+    </div>
+  );
+}
+export default function App() {
+  const launch = useSolanaLaunch(),
+    { route, navigate } = useRoute(),
+    [draft, setDraft] = useState<CoinDraft>(initialDraft),
+    [coins, setCoins] = useState<Coin[]>([]),
+    [loading, setLoading] = useState(true),
+    [feedError, setFeedError] = useState(""),
+    [query, setQuery] = useState(""),
+    [menu, setMenu] = useState(false),
+    [notice, setNotice] = useState(""),
+    [funding, setFunding] = useState(false),
+    [imageBusy, setImageBusy] = useState(false),
+    [now, setNow] = useState(() => Date.now());
+  function load() {
+    void api<{ coins: Coin[] }>("/api/coins")
+      .then((d) => {
+        setCoins(d.coins);
+        setFeedError("");
+      })
+      .catch((e) => setFeedError(e.message))
+      .finally(() => setLoading(false));
+  }
+  useEffect(() => {
+    load();
+    const timer = setInterval(() => {
+      if (document.visibilityState === "visible") load();
+    }, 20000);
+    return () => clearInterval(timer);
+  }, []);
+  useEffect(() => {
+    if (!launch.review) return;
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [launch.review]);
+  useEffect(() => {
+    document.title =
+      route.page === "home"
+        ? "Intent Pad — The NEAR-Paired Solana Launchpad"
+        : route.page === "coin"
+          ? "Coin · Intent Pad"
+          : route.page[0].toUpperCase() + route.page.slice(1) + " · Intent Pad";
+  }, [route.page]);
+  useEffect(() => {
+    if (!notice) return;
+    const timer = setTimeout(() => setNotice(""), 6500);
+    return () => clearTimeout(timer);
+  }, [notice]);
+  const go = (path: string) => {
+    navigate(path);
+    setMenu(false);
+  };
+  const link = (e: MouseEvent<HTMLAnchorElement>, path: string) => {
+    if (!e.ctrlKey && !e.metaKey && !e.shiftKey && e.button === 0) {
+      e.preventDefault();
+      go(path);
+    }
+  };
+  const change = (patch: Partial<CoinDraft>) =>
+    setDraft((old) => {
+      const next = { ...old, ...patch };
+      try {
+        localStorage.setItem(DRAFT_KEY, JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+  const list = coins.filter(
+    (c) =>
+      (route.page !== "dashboard" || c.creator === launch.account) &&
+      [c.name, c.symbol, c.mint]
+        .join(" ")
+        .toLowerCase()
+        .includes(query.toLowerCase()),
+  );
+  const onConfirmed = (coin: Coin | undefined) => {
+    if (coin) {
+      setCoins((old) => [coin, ...old.filter((c) => c.mint !== coin.mint)]);
+      go(coinPath(coin.mint));
+    }
+  };
+  useEffect(() => {
+    if (launch.confirmedCoin) navigate(coinPath(launch.confirmedCoin.mint));
+  }, [launch.confirmedCoin, navigate]);
+  const submit = (e: FormEvent) => {
+    e.preventDefault();
+    void launch.prepare(draft);
+  };
+  async function chooseImage(file?: File) {
+    if (!file) return;
+    if (
+      !["image/png", "image/jpeg", "image/webp"].includes(file.type) ||
+      file.size > 1500000
+    ) {
+      setNotice("Choose a PNG, JPEG or WebP under 1.5 MB.");
+      return;
+    }
+    setImageBusy(true);
+    try {
+      const image = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () =>
+          typeof reader.result === "string"
+            ? resolve(reader.result)
+            : reject(Error("Image could not be read."));
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+      change({ image });
+    } catch {
+      setNotice("The image could not be read. Choose it again.");
+    } finally {
+      setImageBusy(false);
+    }
+  }
+  const gallery = () => (
+    <>
+      {loading && !coins.length ? (
+        <div className="coin-grid" role="status" aria-label="Loading launches">
+          {[0, 1, 2, 3].map((i) => (
+            <div key={i} className="skeleton coin-skeleton" />
+          ))}
+        </div>
+      ) : feedError && !coins.length ? (
+        <Empty
+          title="Launches are temporarily unavailable."
+          action={
+            <button className="button secondary" onClick={load}>
+              Retry <Icon name="refresh" />
+            </button>
+          }
+        >
+          {feedError}
+        </Empty>
+      ) : list.length ? (
+        <div className="coin-grid">
+          {list.map((c) => (
+            <a
+              key={c.mint}
+              className="coin-card"
+              href={coinPath(c.mint)}
+              onClick={(e) => link(e, coinPath(c.mint))}
+            >
+              <div className="coin-art">
+                <CoinArt coin={c} />
+                <span className="card-network">NEAR PAIR · SOLANA</span>
+              </div>
+              <div className="coin-content">
+                <span className="eyebrow">${c.symbol}</span>
+                <h3>{c.name}</h3>
+                <p className="coin-description">
+                  {c.description || "A NEAR-paired community coin."}
+                </p>
+                <div className="card-footer">
+                  <span className="status-dot">
+                    {c.creatorFeeBps / 100}% creator fee
+                  </span>
+                  <Icon name="arrow" size={16} />
+                </div>
+              </div>
+            </a>
+          ))}
+        </div>
+      ) : (
+        <Empty
+          title={
+            route.page === "dashboard" && !launch.account
+              ? "Your coins. Your workspace."
+              : query
+                ? "No matching coins."
+                : "The next launch could be yours."
+          }
+          action={
+            <button
+              className="button primary"
+              onClick={() =>
+                route.page === "dashboard" && !launch.account
+                  ? void launch.connect()
+                  : go("/launch")
+              }
+            >
+              {route.page === "dashboard" && !launch.account
+                ? "Connect Solana wallet"
+                : "Launch a coin"}
+              <Icon name="arrow" />
+            </button>
+          }
+        >
+          {route.page === "dashboard" && !launch.account
+            ? "Connect the wallet you launch with to see your confirmed coins."
+            : query
+              ? "Try a different name, ticker or mint."
+              : "NEAR-paired coins appear here after finalized Pump.fun creation. Launch yours to start the next community."}
+        </Empty>
+      )}
+    </>
+  );
+  return (
+    <div className="site">
+      <a className="skip-link" href="#main">
+        Skip to content
+      </a>
+      <header className="header">
+        <div className="header-inner">
+          <a className="brand" href="/" onClick={(e) => link(e, "/")}>
+            <IntentMark />
+            <span>
+              Intent<span className="brand-light">Pad</span>
+            </span>
+          </a>
+          <nav
+            className={menu ? "nav open" : "nav"}
+            aria-label="Main navigation"
+          >
+            {[
+              ["/explore", "Explore"],
+              ["/dashboard", "My launches"],
+              ["/docs", "How it works"],
+            ].map(([path, label]) => (
+              <a
+                key={path}
+                className={route.page === path.slice(1) ? "active" : ""}
+                href={path}
+                onClick={(e) => link(e, path)}
+              >
+                {label}
+              </a>
+            ))}
+          </nav>
+          <div className="header-actions">
+            <button
+              className="button secondary wallet-button"
+              onClick={() => void launch.connect()}
+            >
+              <Icon name="wallet" />
+              {launch.account ? short(launch.account) : "Connect wallet"}
+            </button>
+            <a
+              className="button primary header-launch"
+              href="/launch"
+              onClick={(e) => link(e, "/launch")}
+            >
+              Launch a coin <Icon name="arrow" />
+            </a>
+            <button
+              className="icon-button menu-button"
+              aria-label={menu ? "Close navigation" : "Open navigation"}
+              aria-expanded={menu}
+              onClick={() => setMenu((v) => !v)}
+            >
+              <Icon name={menu ? "close" : "menu"} />
+            </button>
+          </div>
+        </div>
+      </header>
+      <main id="main">
+        {route.page === "home" && (
+          <>
+            <section className="hero container">
+              <div className="hero-copy">
+                <span className="eyebrow hero-eyebrow">
+                  <span className="status-dot" /> NEAR POWERED. SOLANA NATIVE.
+                </span>
+                <h1>
+                  Solana’s dedicated
+                  <br />
+                  <span>NEAR launchpad.</span>
+                </h1>
+                <p>
+                  Launch a coin paired with NEAR.
+                  <br />
+                  Fund through Intents. Approve with your Solana wallet.
+                </p>
+                <div className="hero-actions">
+                  <a
+                    className="button primary"
+                    href="/launch"
+                    onClick={(e) => link(e, "/launch")}
+                  >
+                    Launch a coin <Icon name="arrow" />
+                  </a>
+                  <a
+                    className="button secondary"
+                    href="/explore"
+                    onClick={(e) => link(e, "/explore")}
+                  >
+                    Explore coins <Icon name="arrow" />
+                  </a>
+                </div>
+                <div className="hero-proof">
+                  <span>
+                    <Icon name="shield" size={14} /> Wallet-approved creation
+                  </span>
+                  <span>
+                    <Icon name="layers" size={14} /> Powered by Pump.fun
+                  </span>
+                </div>
+              </div>
+              <div className="hero-visual">
+                <IntentMesh />
+                <div className="mesh-caption">
+                  <span className="status-dot" /> NEAR / SOLANA
+                  <span>ONE CONNECTED LAUNCH</span>
+                </div>
+              </div>
+            </section>
+            <section className="directory-section container">
+              <div className="section-heading">
+                <div>
+                  <span className="eyebrow">
+                    THE NEXT COMMUNITY STARTS HERE
+                  </span>
+                  <h2>
+                    Recent launches<span className="open-label">ONCHAIN</span>
+                  </h2>
+                </div>
+                <a
+                  className="text-link"
+                  href="/explore"
+                  onClick={(e) => link(e, "/explore")}
+                >
+                  View all <Icon name="arrow" size={16} />
+                </a>
+              </div>
+              {gallery()}
+            </section>
+            <section className="steps container">
+              <div>
+                <span className="eyebrow">FROM NEAR TO YOUR NEXT COIN</span>
+                <h2>A straightforward launch.</h2>
+              </div>
+              <div className="step-grid">
+                {[
+                  [
+                    "01",
+                    "Fund with NEAR.",
+                    "Use Intents to receive wrapped NEAR on Solana. Keep SOL separately for account rent and gas.",
+                  ],
+                  [
+                    "02",
+                    "Make it yours.",
+                    "Set your name, ticker and creator fee. Review the simulated creation and optional NEAR buy.",
+                  ],
+                  [
+                    "03",
+                    "Launch. Then share.",
+                    "Approve in your Solana wallet. Your coin gets a public page and a finalized launch receipt.",
+                  ],
+                ].map(([n, title, body]) => (
+                  <article key={n}>
+                    <span>{n}</span>
+                    <h3>{title}</h3>
+                    <p>{body}</p>
+                  </article>
+                ))}
+              </div>
+            </section>
+          </>
+        )}
+        {(route.page === "explore" || route.page === "dashboard") && (
+          <section className="container page-section">
+            <div className="section-heading">
+              <div>
+                <span className="eyebrow">
+                  {route.page === "dashboard"
+                    ? "YOUR WORKSPACE"
+                    : "NEAR-PAIRED. SOLANA-SETTLED."}
+                </span>
+                <h1>
+                  {route.page === "dashboard" ? "My launches" : "Explore coins"}
+                </h1>
+                <p className="page-lede">
+                  {route.page === "dashboard"
+                    ? "Recent confirmed launches from your connected Solana wallet."
+                    : "Discover NEAR-paired coins and their onchain launch records."}
+                </p>
+              </div>
+              <button className="button primary" onClick={() => go("/launch")}>
+                Launch a coin <Icon name="arrow" />
+              </button>
+            </div>
+            <div className="directory-toolbar">
+              <label className="search">
+                <Icon name="search" />
+                <input
+                  type="search"
+                  aria-label="Search coins"
+                  placeholder="Search name, ticker or mint"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                />
+              </label>
+              <button
+                className="icon-button"
+                aria-label="Refresh launches"
+                disabled={loading}
+                onClick={load}
+              >
+                <Icon name="refresh" />
+              </button>
+            </div>
+            {gallery()}
+          </section>
+        )}
+        {route.page === "launch" && (
+          <section className="container launch-page">
+            <div className="launch-intro">
+              <span className="eyebrow">YOUR NEXT COMMUNITY STARTS HERE</span>
+              <h1>Launch a coin.</h1>
+              <p>
+                Paired with NEAR. Created on Solana.
+                <br />
+                Reviewed by you before your wallet signs.
+              </p>
+              <div className="launch-steps">
+                <span className={!launch.review ? "active" : ""}>
+                  01 · Configure
+                </span>
+                <span
+                  className={launch.review && !launch.signature ? "active" : ""}
+                >
+                  02 · Review & approve
+                </span>
+                <span className={launch.signature ? "active" : ""}>
+                  03 · Confirm
+                </span>
+              </div>
+              <div className="draft-preview">
+                <div className="coin-art">
+                  <CoinArt
+                    coin={{
+                      name: draft.name || "Your coin",
+                      symbol: draft.symbol || "COIN",
+                      image: draft.image,
+                    }}
+                  />
+                  <span className="card-network">NEAR PAIR · SOLANA</span>
+                </div>
+                <div className="coin-content">
+                  <span className="eyebrow">
+                    {draft.symbol ? "$" + draft.symbol : "YOUR COIN"}
+                  </span>
+                  <h3>{draft.name || "Make it yours."}</h3>
+                  <p>{draft.description || "A new coin. A new community."}</p>
+                  <div className="card-footer">
+                    <span>{draft.creatorFeeBps / 100}% creator fee</span>
+                    <Icon name="arrow" size={16} />
+                  </div>
+                </div>
+              </div>
+              <p className="small-note">
+                The trading pair uses wrapped NEAR on Solana. Intents funding
+                and coin creation are separate wallet approvals.
+              </p>
+            </div>
+            <div className="launch-form panel">
+              <div className="form-heading">
+                <h2>
+                  {launch.signature
+                    ? "Your launch receipt"
+                    : launch.review
+                      ? "Review your launch"
+                      : "Coin details"}
+                </h2>
+                <span className="network-label">
+                  <span className="status-dot" />
+                  Solana mainnet
+                </span>
+              </div>
+              {!launch.review ? (
+                <form onSubmit={submit}>
+                  <fieldset disabled={launch.busy} className="form-fieldset">
+                    <div className="form-grid">
+                      <label>
+                        Coin name
+                        <input
+                          required
+                          maxLength={32}
+                          value={draft.name}
+                          onChange={(e) => change({ name: e.target.value })}
+                          placeholder="Give your coin a name"
+                        />
+                      </label>
+                      <label>
+                        Ticker
+                        <input
+                          required
+                          maxLength={10}
+                          pattern="[A-Za-z0-9]{1,10}"
+                          value={draft.symbol}
+                          onChange={(e) =>
+                            change({ symbol: e.target.value.toUpperCase() })
+                          }
+                          placeholder="COIN"
+                        />
+                      </label>
+                      <label className="wide">
+                        Description
+                        <textarea
+                          required
+                          maxLength={1000}
+                          rows={3}
+                          placeholder="What’s your community about?"
+                          value={draft.description}
+                          onChange={(e) =>
+                            change({ description: e.target.value })
+                          }
+                        />
+                      </label>
+                      <label className="wide image-upload">
+                        Coin image
+                        <input
+                          required={!draft.image}
+                          type="file"
+                          accept="image/png,image/jpeg,image/webp"
+                          onChange={(e) =>
+                            void chooseImage(e.target.files?.[0])
+                          }
+                        />
+                        <small>
+                          {imageBusy
+                            ? "Reading image…"
+                            : "PNG, JPEG or WebP · up to 1.5 MB"}
+                        </small>
+                      </label>
+                      <label>
+                        Website <span className="optional">(optional)</span>
+                        <input
+                          type="url"
+                          pattern="https://.*"
+                          maxLength={250}
+                          placeholder="https://"
+                          value={draft.website}
+                          onChange={(e) => change({ website: e.target.value })}
+                        />
+                      </label>
+                      <label>
+                        X <span className="optional">(optional)</span>
+                        <input
+                          type="url"
+                          pattern="https://.*"
+                          maxLength={250}
+                          placeholder="https://x.com/"
+                          value={draft.twitter}
+                          onChange={(e) => change({ twitter: e.target.value })}
+                        />
+                      </label>
+                    </div>
+                    <div className="pair-field">
+                      <span>Trading pair</span>
+                      <strong>
+                        <IntentMark /> Your coin / NEAR
+                      </strong>
+                      <small>Wrapped NEAR on Solana · Pump.fun</small>
+                    </div>
+                    <fieldset className="fee-field">
+                      <legend>Creator fee</legend>
+                      <div className="fee-buttons">
+                        {[30, 50, 100, 200, 300].map((bps) => (
+                          <button
+                            key={bps}
+                            type="button"
+                            className="button secondary"
+                            aria-pressed={draft.creatorFeeBps === bps}
+                            onClick={() => change({ creatorFeeBps: bps })}
+                          >
+                            {bps / 100}%
+                          </button>
+                        ))}
+                      </div>
+                      <small>
+                        Fixed at launch. Pump’s protocol fee is separate.
+                        Creator fees go to your launching wallet.
+                      </small>
+                    </fieldset>
+                    <div className="funding-strip">
+                      <div>
+                        <span>YOUR SOLANA WALLET</span>
+                        <strong>
+                          {launch.account
+                            ? short(launch.account)
+                            : "Connect to view balances"}
+                        </strong>
+                        {launch.balance && (
+                          <small>
+                            {atoms(launch.balance.nearRaw)} wNEAR ·{" "}
+                            {atoms(launch.balance.solRaw)} SOL
+                          </small>
+                        )}
+                      </div>
+                      <button
+                        type="button"
+                        className="button secondary"
+                        onClick={() =>
+                          launch.account
+                            ? setFunding(true)
+                            : void launch.connect()
+                        }
+                      >
+                        Fund with NEAR <Icon name="arrow" size={15} />
+                      </button>
+                    </div>
+                    <label className="dev-buy">
+                      Initial buy in NEAR{" "}
+                      <span className="optional">(optional)</span>
+                      <input
+                        type="number"
+                        required
+                        min="0"
+                        max="1000"
+                        step="0.000000001"
+                        value={draft.devBuyNear}
+                        onChange={(e) => change({ devBuyNear: e.target.value })}
+                      />
+                      <small>
+                        0 skips the buy. Purchased coins go to your Solana
+                        wallet. SOL for account rent and network fees is
+                        separate.
+                      </small>
+                    </label>
+                    <button
+                      className="button primary full"
+                      disabled={
+                        launch.busy ||
+                        imageBusy ||
+                        launch.health?.ready === false
+                      }
+                      type="submit"
+                    >
+                      {launch.busy
+                        ? "Checking launch…"
+                        : launch.account
+                          ? "Review launch"
+                          : "Connect Solana wallet"}
+                      <Icon name={launch.account ? "arrow" : "wallet"} />
+                    </button>
+                    {launch.health?.ready === false && (
+                      <p className="inline-status">
+                        Launch service unavailable:{" "}
+                        {launch.health.missing.join(", ")}. Retry before a
+                        wallet approval.
+                      </p>
+                    )}
+                  </fieldset>
+                </form>
+              ) : (
+                <div className="deployment-review">
+                  <dl>
+                    {[
+                      [
+                        "Coin",
+                        launch.review.name + " ($" + launch.review.symbol + ")",
+                      ],
+                      ["Paired with", "NEAR on Solana"],
+                      ["Creator fee", launch.review.creatorFeeBps / 100 + "%"],
+                      ["Fee recipient", launch.review.creator],
+                      ["Initial buy", atoms(launch.review.devBuyRaw) + " NEAR"],
+                      [
+                        "Estimated SOL debit",
+                        atoms(launch.review.estimatedSolRaw) + " SOL",
+                      ],
+                      ["Token mint", launch.review.mint],
+                    ].map(([k, v]) => (
+                      <div key={k}>
+                        <dt>{k}</dt>
+                        <dd>{v}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                  {launch.signature ? (
+                    <>
+                      <div className="transaction-status">
+                        <span className="status-dot" />
+                        {launch.stage === "failed"
+                          ? "Transaction failed"
+                          : launch.stage === "review"
+                            ? "Reconciliation required"
+                            : "Tracking original transaction"}
+                      </div>
+                      <a
+                        className="text-link"
+                        href={"https://solscan.io/tx/" + launch.signature}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        View transaction <Icon name="arrow" size={15} />
+                      </a>
+                      <button
+                        className="button primary full"
+                        disabled={launch.busy}
+                        onClick={() => void launch.check().then(onConfirmed)}
+                      >
+                        Check confirmation <Icon name="refresh" size={15} />
+                      </button>
+                      <button
+                        className="button secondary full"
+                        disabled={
+                          launch.busy ||
+                          ["failed", "review"].includes(launch.stage)
+                        }
+                        onClick={() => void launch.approve().then(onConfirmed)}
+                      >
+                        Resume original submission
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <div className="funding-note">
+                        <Icon name="shield" />
+                        <p>
+                          The reviewed transaction creates your coin, locks its
+                          creator fee to your wallet and includes the optional
+                          NEAR buy. Review the total cost in your wallet.
+                        </p>
+                      </div>
+                      <button
+                        className="button primary full"
+                        disabled={launch.busy || now > launch.review.expiresAt}
+                        onClick={() => void launch.approve().then(onConfirmed)}
+                      >
+                        {launch.busy
+                          ? "Waiting for wallet…"
+                          : now > launch.review.expiresAt
+                            ? "Review expired"
+                            : "Approve in your Solana wallet"}
+                        <Icon name="wallet" />
+                      </button>
+                      <button
+                        className="button secondary full"
+                        disabled={launch.busy}
+                        onClick={launch.edit}
+                      >
+                        Edit coin details
+                      </button>
+                    </>
+                  )}
+                </div>
+              )}
+              {launch.message && (
+                <p className="inline-status" role="status">
+                  {launch.message}
+                </p>
+              )}
+              <div className="verification-caption">
+                <Icon name="shield" size={14} /> Wallet-approved.
+                Onchain-verified.
+              </div>
+            </div>
+          </section>
+        )}
+        {route.page === "native" && (
+          <NativeReceipt key={route.account} account={route.account || ""} />
+        )}
+        {route.page === "coin" && (
+          <CoinPage
+            key={route.account}
+            mint={route.account || ""}
+            copy={setNotice}
+            back={() => go("/explore")}
+          />
+        )}
+        {route.page === "docs" && (
+          <section className="container docs-page">
+            <span className="eyebrow">NEAR FUNDING. SOLANA EXECUTION.</span>
+            <h1>Know your launch.</h1>
+            <p className="page-lede">
+              A NEAR-paired coin, with a transaction you approve.
+            </p>
+            <div className="faq">
+              {[
+                [
+                  "Which chain does my coin launch on?",
+                  "Solana mainnet, through Pump.fun. Its trading pair uses the verified wrapped NEAR mint on Solana, not a native NEAR token contract.",
+                ],
+                [
+                  "How do I fund with NEAR?",
+                  "Connect your Solana wallet, then open Fund with NEAR. Connect the NEAR account used for refunds, choose wNEAR for your initial buy or SOL for rent and gas, and review the exact Intents quote. The deposit and the launch are separate approvals.",
+                ],
+                [
+                  "Where do creator fees go?",
+                  "The selected creator-fee rate is fixed at launch, with 100% of those creator fees assigned to your launching wallet. Pump’s protocol fees are separate. You can manage fee collection through the supported Pump.fun tools.",
+                ],
+                [
+                  "What happens if confirmation is delayed?",
+                  "The mint key and reviewed draft are saved to your wallet’s browser recovery record. The server durably saves the exact fully signed transaction before broadcasting. Resume checks the original signature, rather than requesting another payment. Keep this browser and the original launching wallet available.",
+                ],
+                [
+                  "When does my coin appear?",
+                  "After the launch finalizes and the server verifies the exact approved transaction, token mint and immutable creator-fee assignment. The public directory and coin page use confirmed records. Market charts appear only once a supported trading pair is indexed.",
+                ],
+                [
+                  "Who receives the initial buy?",
+                  "Your connected Solana launching wallet. The buy is paid in wrapped NEAR already in that wallet, with the reviewed amount as a hard spending cap. SOL covers account rent and network fees.",
+                ],
+                [
+                  "Is this an official NEAR or Pump.fun product?",
+                  "Intent Pad is an independent application. NEAR Intents provides the funding routes and Pump.fun provides token creation and trading. Tokens are speculative and can lose all value.",
+                ],
+              ].map(([q, a]) => (
+                <details key={q}>
+                  <summary>
+                    {q}
+                    <Icon name="chevron" size={16} />
+                  </summary>
+                  <p>{a}</p>
+                </details>
+              ))}
+            </div>
+            <div className="documentation-links">
+              <a
+                href="https://docs.near-intents.org/"
+                target="_blank"
+                rel="noreferrer"
+              >
+                NEAR Intents <Icon name="arrow" />
+              </a>
+              <a
+                href="https://pump.fun/docs/fees"
+                target="_blank"
+                rel="noreferrer"
+              >
+                Pump.fun fees <Icon name="arrow" />
+              </a>
+            </div>
+          </section>
+        )}
+      </main>
+      <footer className="container footer">
+        <a className="brand" href="/" onClick={(e) => link(e, "/")}>
+          <IntentMark />
+          <span>
+            Intent<span className="brand-light">Pad</span>
+          </span>
+        </a>
+        <div>
+          <a href="/dashboard" onClick={(e) => link(e, "/dashboard")}>
+            My launches
+          </a>
+          <a href="/docs" onClick={(e) => link(e, "/docs")}>
+            How it works
+          </a>
+          <a href="https://near-intents.org" target="_blank" rel="noreferrer">
+            NEAR Intents <Icon name="arrow" size={13} />
+          </a>
+        </div>
+        <p>
+          Independent, built around NEAR. Coins are speculative and can lose all
+          value.
+        </p>
+        <span>© {YEAR} Intent Pad</span>
+      </footer>
+      {(notice || (route.page !== "launch" && launch.message)) && (
+        <div className="toast" role="status">
+          <Icon name="layers" size={16} />
+          <span>{notice || launch.message}</span>
+          <button
+            className="icon-button"
+            aria-label="Dismiss notification"
+            onClick={() => {
+              setNotice("");
+              launch.dismiss();
+            }}
+          >
+            <Icon name="close" size={16} />
+          </button>
+        </div>
+      )}
+      {launch.choosing && (
+        <Modal label="wallet-title" close={() => launch.setChoosing(false)}>
+          <section className="wallet-modal panel">
+            <div className="form-heading">
+              <h2 id="wallet-title">Connect a Solana wallet.</h2>
+              <button
+                className="icon-button"
+                aria-label="Close wallet selection"
+                onClick={() => launch.setChoosing(false)}
+              >
+                <Icon name="close" />
+              </button>
+            </div>
+            <p className="page-lede">
+              Your wallet approves coin creation and receives your coins and
+              creator fees.
+            </p>
+            {launch.wallets.length ? (
+              launch.wallets.map((w) => (
+                <button
+                  key={w.name}
+                  className="wallet-choice"
+                  onClick={() => void launch.connect(w)}
+                >
+                  <img src={w.icon} alt="" width="28" height="28" />
+                  {w.name}
+                  <Icon name="arrow" />
+                </button>
+              ))
+            ) : (
+              <div className="inline-status">
+                No Solana wallet was detected. Open this site in your wallet’s
+                browser, or install a supported wallet such as Phantom.
+              </div>
+            )}
+          </section>
+        </Modal>
+      )}
+      {funding && launch.account && (
+        <Funding
+          recipient={launch.account}
+          close={() => setFunding(false)}
+          onFunded={() => void launch.refreshBalance()}
+        />
+      )}
+    </div>
+  );
+}
+function CoinPage({
+  mint,
+  copy,
+  back,
+}: {
+  mint: string;
+  copy: (s: string) => void;
+  back: () => void;
+}) {
+  const [data, setData] = useState<{
+      coin: Coin;
+      marketStatus: "available" | "pending" | "unavailable";
+      market: {
+        pair: string;
+        quoteSymbol: string;
+        priceUsd: number | null;
+        marketCap: number | null;
+        volume24h: number | null;
+        liquidity: number | null;
+      } | null;
+    } | null>(null),
+    [error, setError] = useState(""),
+    [loading, setLoading] = useState(true),
+    [attempt, setAttempt] = useState(0),
+    [tab, setTab] = useState("About");
+  useEffect(() => {
+    let active = true;
+    const refresh = () =>
+      api<NonNullable<typeof data>>(
+        "/api/coin?mint=" + encodeURIComponent(mint),
+      )
+        .then((d) => {
+          if (active) {
+            setData(d);
+            document.title =
+              d.coin.name + " ($" + d.coin.symbol + ") · Intent Pad";
+          }
+        })
+        .catch((e) => {
+          if (active) setError(e.message);
+        })
+        .finally(() => {
+          if (active) setLoading(false);
+        });
+    void refresh();
+    const timer = setInterval(() => {
+      if (document.visibilityState === "visible") void refresh();
+    }, 30000);
+    return () => {
+      active = false;
+      clearInterval(timer);
+    };
+  }, [mint, attempt]);
+  if (loading)
+    return (
+      <section className="container page-section">
+        <button className="back-link" onClick={back}>
+          <Icon name="back" size={16} />
+          All coins
+        </button>
+        <div className="skeleton token-heading-skeleton" />
+        <div
+          className="skeleton chart-skeleton"
+          role="status"
+          aria-label="Loading verified coin"
+        />
+      </section>
+    );
+  if (!data)
+    return (
+      <section className="container page-section">
+        <button className="back-link" onClick={back}>
+          <Icon name="back" size={16} />
+          All coins
+        </button>
+        <Empty
+          title="Coin page unavailable."
+          action={
+            <button
+              className="button secondary"
+              onClick={() => {
+                setLoading(true);
+                setError("");
+                setAttempt((n) => n + 1);
+              }}
+            >
+              Try again <Icon name="refresh" />
+            </button>
+          }
+        >
+          {error || "No confirmed launch was found."}
+        </Empty>
+      </section>
+    );
+  const { coin: c, market: m } = data;
+  return (
+    <section className="container token-page">
+      <button className="back-link" onClick={back}>
+        <Icon name="back" size={16} />
+        All coins
+      </button>
+      <div className="token-heading">
+        <CoinArt coin={c} large />
+        <div>
+          <div className="token-tags">
+            <span className="network-label">
+              <span className="status-dot" />
+              LIVE ON SOLANA · NEAR PAIR
+            </span>
+            <span className="tag">Creator fee · {c.creatorFeeBps / 100}%</span>
+          </div>
+          <h1>
+            {c.name}
+            <span>${c.symbol}</span>
+          </h1>
+          <p>{c.description}</p>
+        </div>
+        <a
+          className="button primary"
+          href={"https://pump.fun/coin/" + c.mint}
+          target="_blank"
+          rel="noreferrer"
+        >
+          Trade coin <Icon name="arrow" />
+        </a>
+      </div>
+      <div className="token-address-row">
+        <Address value={c.mint} label="Solana coin address" onCopy={copy} />
+        <span>
+          <Icon name="shield" size={14} /> Solana contract. Verify before you
+          buy.
+        </span>
+      </div>
+      <div className="token-metrics">
+        {[
+          ["Price", price(m?.priceUsd)],
+          ["Market cap", price(m?.marketCap)],
+          ["24h volume", price(m?.volume24h)],
+          ["Liquidity", price(m?.liquidity)],
+        ].map(([k, v]) => (
+          <div key={k}>
+            <span>{k}</span>
+            <strong>{v}</strong>
+          </div>
+        ))}
+      </div>
+      <div className="token-workspace">
+        <section className="market-panel panel">
+          <div className="panel-heading">
+            <span>
+              {c.symbol} / {m?.quoteSymbol || "NEAR"}
+            </span>
+            <span className="subtle">
+              {m ? "DEX Screener" : "Market overview"}
+            </span>
+          </div>
+          {m ? (
+            <iframe
+              className="price-chart"
+              title={c.symbol + " trading chart"}
+              src={
+                "https://dexscreener.com/solana/" +
+                m.pair +
+                "?embed=1&theme=dark&trades=0&info=0"
+              }
+              loading="lazy"
+            />
+          ) : (
+            <div className="market-empty">
+              <div className="chart-grid" aria-hidden="true" />
+              <span className="chart-empty-icon">
+                <Icon name="layers" size={28} />
+              </span>
+              <h2>Your coin is onchain.</h2>
+              <p>
+                {data.marketStatus === "unavailable"
+                  ? "Market data is temporarily unavailable. You can still open the coin’s Pump.fun market."
+                  : "Its live chart and market metrics appear once DEX Screener indexes the trading pair."}
+              </p>
+              <a
+                className="text-link"
+                href={"https://pump.fun/coin/" + c.mint}
+                target="_blank"
+                rel="noreferrer"
+              >
+                Open the Pump.fun market <Icon name="arrow" size={15} />
+              </a>
+              <button
+                className="text-link"
+                onClick={() => {
+                  setLoading(true);
+                  setError("");
+                  setAttempt((n) => n + 1);
+                }}
+              >
+                Check indexing <Icon name="refresh" size={14} />
+              </button>
+            </div>
+          )}
+        </section>
+        <aside className="token-sidebar">
+          <section className="panel trading-card">
+            <span className="eyebrow">TRADE ${c.symbol}</span>
+            <h2>Paired with NEAR.</h2>
+            <p>
+              Buy or sell on the coin’s Pump.fun market. The pair uses wrapped
+              NEAR on Solana.
+            </p>
+            <a
+              className="button primary full"
+              href={"https://pump.fun/coin/" + c.mint}
+              target="_blank"
+              rel="noreferrer"
+            >
+              Trade on Pump.fun <Icon name="arrow" />
+            </a>
+            <small>
+              Trades require your wallet approval. Verify the mint at the venue.
+            </small>
+          </section>
+          <section className="panel token-proof">
+            <span className="eyebrow">VERIFIED LAUNCH</span>
+            <dl>
+              <div>
+                <dt>Network</dt>
+                <dd>Solana mainnet</dd>
+              </div>
+              <div>
+                <dt>Creator fee</dt>
+                <dd>{c.creatorFeeBps / 100}%</dd>
+              </div>
+              <div>
+                <dt>Fee recipient</dt>
+                <dd title={c.creator}>{short(c.creator)}</dd>
+              </div>
+              <div>
+                <dt>Created</dt>
+                <dd>{new Date(c.createdAt).toLocaleDateString()}</dd>
+              </div>
+            </dl>
+            <a
+              className="text-link"
+              href={"https://solscan.io/tx/" + c.signature}
+              target="_blank"
+              rel="noreferrer"
+            >
+              Launch receipt <Icon name="arrow" size={15} />
+            </a>
+          </section>
+        </aside>
+      </div>
+      <div
+        className="tabs detail-tabs"
+        role="tablist"
+        aria-label="Coin information"
+      >
+        {["About", "Onchain records"].map((t) => (
+          <button
+            role="tab"
+            key={t}
+            aria-selected={tab === t}
+            onClick={() => setTab(t)}
+          >
+            {t}
+          </button>
+        ))}
+      </div>
+      <div className="token-detail-body" role="tabpanel">
+        <h2>
+          {tab === "About"
+            ? "About " + c.name
+            : "Every launch, backed by a receipt."}
+        </h2>
+        <p>
+          {tab === "About"
+            ? c.description
+            : "This launch was published after finalized transaction verification, including its exact reviewed instructions, token mint and immutable creator-fee assignment. Market data is provided separately by DEX Screener."}
+        </p>
+        <div className="receipt-links">
+          <a
+            href={"https://solscan.io/token/" + c.mint}
+            target="_blank"
+            rel="noreferrer"
+          >
+            Token contract <Icon name="arrow" size={15} />
+          </a>
+          <a
+            href={"https://solscan.io/account/" + c.creator}
+            target="_blank"
+            rel="noreferrer"
+          >
+            Creator wallet <Icon name="arrow" size={15} />
+          </a>
+          <a
+            href={"https://solscan.io/tx/" + c.signature}
+            target="_blank"
+            rel="noreferrer"
+          >
+            Launch transaction <Icon name="arrow" size={15} />
+          </a>
+          {c.website && (
+            <a href={c.website} target="_blank" rel="noreferrer">
+              Website <Icon name="arrow" size={15} />
+            </a>
+          )}
+          {c.twitter && (
+            <a href={c.twitter} target="_blank" rel="noreferrer">
+              X <Icon name="arrow" size={15} />
+            </a>
+          )}
+        </div>
+      </div>
+    </section>
+  );
 }
