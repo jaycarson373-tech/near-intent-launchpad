@@ -1,5 +1,12 @@
 # near-intent-launchpad: current context
 
+## Current release gate — November 2, 2026
+
+Production runs bundle revision 42da749 at https://www.intentpad.fun. The earlier missing-operator and atomic-only blocking notes below are historical. Latest public read-only health: ready=true, rewardsReady=true, missing=[]; pulse price fresh and confirmed-reward projection available, zero distributed. 72 tests, lint (one existing native-NEAR warning) and production build pass again. `node scripts/check-public-release.mjs` reruns the non-spending public checks.
+
+Next acceptance: owner-wallet batch approval, actual bundle landing/initial buy, reload recovery and one confirmed fee-claim/holder-delivery cycle. Configuration readiness does not prove these funded actions. No signing, spending, worker activation or policy change performed in this organizing pass.
+
+
 Objective: finish Intent Pad (native NEAR NEP-141 launchpad) and run it inside the Crypto workspace rules, reusing shared
 templates/playbooks. Owner request 2026-11-02 (catalog op `near-intentpad-finish-request-2026-11-02`, project `crypto`).
 
