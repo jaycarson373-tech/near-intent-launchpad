@@ -7,7 +7,7 @@ import { launchDraft } from "../lib/launch-draft-store.mjs";
 import {
   walletSignedLaunchMatches,
   cloutPaymentSignature,
-} from "../lib/launch-signatures";
+} from "../lib/launch-signatures.mjs";
 export type Coin = {
   mint: string;
   name: string;

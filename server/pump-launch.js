@@ -23,7 +23,7 @@ import {
 import {
   walletSignedLaunchMatches,
   cloutPaymentSignature,
-} from "../lib/launch-signatures.ts";
+} from "../lib/launch-signatures.mjs";
 import { connection, NEAR } from "../lib/solana-rpc.mjs";
 import {
   read,

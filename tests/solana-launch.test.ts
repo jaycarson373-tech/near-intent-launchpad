@@ -4,7 +4,7 @@ import {Keypair,TransactionInstruction,SystemProgram,PublicKey} from '@solana/we
 import {getTransactionDecoder,getTransactionEncoder} from '@solana/kit';
 import {ed25519} from '@noble/curves/ed25519';
 import {compileLaunchV1,decodeLaunchTransaction} from '../lib/launch-wire.mjs';
-import {walletSignedLaunchMatches,cloutPaymentSignature} from '../lib/launch-signatures.ts';
+import {walletSignedLaunchMatches,cloutPaymentSignature} from '../lib/launch-signatures.mjs';
 import {validate,units,publicCoin} from '../lib/launch-model.js';
 import {fundingRequest,checkedQuote,depositActions,nearAmount,NEAR_ASSET,SOL_ASSET} from '../lib/funding.js';
 import {NEAR} from '../lib/solana-rpc.mjs';
