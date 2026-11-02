@@ -1,3 +1,5 @@
+import {ActivityTape,HolderFlow} from './ActivityTape';
+import {usePulse} from './use-pulse';
 import { useEffect, useState } from "react";
 import type { FormEvent, MouseEvent } from "react";
 import {
@@ -103,6 +105,7 @@ function Empty({
   );
 }
 export default function App() {
+  const pulse = usePulse();
   const launch = useSolanaLaunch(),
     { route, navigate } = useRoute(),
     [draft, setDraft] = useState<CoinDraft>(initialDraft),
@@ -354,6 +357,7 @@ export default function App() {
             </button>
           </div>
         </div>
+        <ActivityTape pulse={pulse} coins={coins} onNavigate={go}/>
       </header>
       <main id="main">
         {route.page === "home" && (
@@ -400,6 +404,7 @@ export default function App() {
               </div>
               <div className="hero-visual">
                 <IntentMesh />
+                <HolderFlow pulse={pulse}/>
                 <div className="mesh-caption">
                   <span className="status-dot" /> NEAR / SOLANA
                   <span>ONE CONNECTED LAUNCH</span>

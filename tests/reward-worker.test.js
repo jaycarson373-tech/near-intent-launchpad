@@ -264,3 +264,14 @@ test("operator parsing rejects coerced JSON bytes, malformed keys and mismatched
   }
   assert.throws(() => operatorKey(JSON.stringify(a), treasury), /match/);
 });
+
+test('public activity contains only confirmed transfers and aggregates a full payout batch once',async()=>{
+ const {activityProjection}=await import('../worker/engine.mjs');const j=ledger();try{
+ const claim=reserveJob(j,mint,'claim',prepared('claim'),1);settleJob(j,claim,{status:'confirmed',result:{raw:'10000'}},2);
+ allocateEpoch(j,mint,900,{slot:44,root:'test-root',weights:{a:'1',b:'1'}},{cents:null,source:null});
+ const rows=j.db.prepare('SELECT owner,raw FROM credits').all(),job=reserveJob(j,mint,'payout',prepared('payout',rows),3);
+ assert.equal(activityProjection(j,3).events.filter(e=>e.kind==='airdrop').length,0);
+ settleJob(j,job,{status:'confirmed',result:{rows}},4);
+ const activity=activityProjection(j,5);assert.equal(activity.totalDistributedRaw,'6500');const payout=activity.events.filter(e=>e.kind==='airdrop');assert.equal(payout.length,1);assert.equal(payout[0].recipients,2);assert.equal(payout[0].raw,'6500');assert.equal(payout[0].signature,job.signature);assert.equal(activity.events.filter(e=>e.kind==='claim').length,1);assert.ok(!JSON.stringify(activity).includes('unsigned-test-fixture'));
+ }finally{j.close()}
+});

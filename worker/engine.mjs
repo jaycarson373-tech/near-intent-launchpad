@@ -250,6 +250,19 @@ export function publicProjection(j, mint, now) {
     status: j.pending() ? "confirming" : "scheduled",
   };
 }
+// Public reporting only: aggregate finalized ledger entries, never pending wires.
+export function activityProjection(j, now) {
+  const total = integerSum(j.db.prepare('SELECT raw FROM payouts').all());
+  const batches = j.db.prepare('SELECT DISTINCT signature,mint,time FROM payouts ORDER BY time DESC,signature LIMIT 30').all();
+  const events = batches.map(batch => {
+    const rows = j.db.prepare('SELECT owner,raw FROM payouts WHERE signature=? AND mint=?').all(batch.signature,batch.mint);
+    return { id:'airdrop:'+batch.signature,kind:'airdrop',mint:batch.mint,signature:batch.signature,raw:String(integerSum(rows)),recipients:rows.length,at:batch.time*1000 };
+  });
+  for (const claim of j.db.prepare('SELECT signature,mint,raw,time FROM claims ORDER BY time DESC LIMIT 20').all()) {
+    events.push({id:'claim:'+claim.signature,kind:'claim',mint:claim.mint,signature:claim.signature,raw:claim.raw,at:claim.time*1000});
+  }
+  return {policyHash:POLICY_HASH,assetMint:NEAR,updatedAt:now*1000,totalDistributedRaw:String(total),events:events.sort((a,b)=>b.at-a.at||a.id.localeCompare(b.id)).slice(0,40)};
+}
 export async function publish(j, now) {
   for (const c of j.db.prepare("SELECT mint FROM coins").all())
     await put(
@@ -263,6 +276,7 @@ export async function publish(j, now) {
         cacheControlMaxAge: 60,
       },
     );
+  await put('intent-pad-solana-v1/rewards/activity.json',JSON.stringify(activityProjection(j,now)),{access:'private',contentType:'application/json',addRandomSuffix:false,allowOverwrite:true,cacheControlMaxAge:60});
 }
 export async function tick(
   session,
@@ -292,6 +306,7 @@ export async function tick(
       return { ready: true, reason: "confirming transaction" };
     settleJob(j, pending, result, now);
     await session.commit();
+    if(result.status==='confirmed')await publish(j,now);
     if (result.status === "review")
       return {
         ready: false,
