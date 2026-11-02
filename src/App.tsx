@@ -441,7 +441,7 @@ export default function App() {
                   [
                     "01",
                     "Buy with SOL.",
-                    "Your SOL converts to the NEAR needed for the initial buy. Creation follows after that conversion confirms. Keep SOL for rent and gas.",
+                    "Enter your initial buy in SOL. The combined swap and launch are checked before a wallet approval. Keep SOL for rent and gas.",
                   ],
                   [
                     "02",
@@ -721,7 +721,7 @@ export default function App() {
                       />
                       <small>
                         0 skips the buy. Purchased coins go to your Solana
-                        wallet. Approve the SOL-to-NEAR conversion, then coin creation and your initial buy. Account rent and network fees are extra.
+                        wallet. New SOL buys use one combined swap-and-launch transaction when its checks pass. Account rent and network fees are extra.
                       </small>
                     </label>
                     <button
@@ -761,7 +761,7 @@ export default function App() {
                       ["Creator fee", launch.review.creatorFeeBps / 100 + "%"],
                       [launch.review.feeTreasury?"Reward treasury":"Original fee recipient", launch.review.feeTreasury||launch.review.creator],
                       ["Initial buy", launch.review.devBuySolRaw!==undefined?atoms(launch.review.devBuySolRaw)+" SOL"+(launch.review.fundingId?" · converted":""):atoms(launch.review.devBuyRaw)+" NEAR · saved review"],
-                      ["Approval",launch.review.phase==="conversion"?"1 of 2 · SOL conversion":"Coin creation & initial buy"],
+                      ["Approval",launch.review.atomicSolBuy?"One transaction · SOL buy & launch":launch.review.phase==="conversion"?"Saved SOL conversion":"Coin creation & initial buy"],
                       [
                         "Estimated SOL debit",
                         atoms(launch.review.estimatedSolRaw) + " SOL",
@@ -780,6 +780,8 @@ export default function App() {
                         <span className="status-dot" />
                         {launch.stage === "failed"
                           ? "Transaction failed"
+                          : launch.stage === "blocked"
+                            ? "Submission blocked"
                           : launch.stage === "review"
                             ? "Transaction expired"
                             : "Tracking original transaction"}
@@ -822,7 +824,7 @@ export default function App() {
                       <div className="funding-note">
                         <Icon name="shield" />
                         <p>
-                          {launch.review.phase==='conversion'?'First, convert the entered SOL amount to NEAR. A separate approval then creates the coin and makes the buy. Converted NEAR stays in your wallet if you stop.':'This transaction creates your coin and locks its reviewed fee recipient. Your wallet shows the initial buy, if set, plus rent and network fees.'}
+                          {launch.review.atomicSolBuy?'One transaction converts the entered SOL amount, creates your NEAR-paired coin and makes the initial buy. These operations succeed together or revert; network fees can still apply.':launch.review.phase==='conversion'?'This saved review converts SOL to NEAR. Coin creation requires a separate approval. Converted NEAR stays in your wallet if you stop.':'This transaction creates your coin and locks its reviewed fee recipient. Your wallet shows the initial buy, if set, plus rent and network fees.'}
                         </p>
                       </div>
                       <button
@@ -834,7 +836,7 @@ export default function App() {
                           ? "Waiting for wallet…"
                           : now > launch.review.expiresAt
                             ? "Review expired"
-                            : launch.review.phase==="conversion"?"Approve SOL conversion":"Approve coin creation"}
+                            : launch.review.atomicSolBuy?"Approve SOL buy & launch":launch.review.phase==="conversion"?"Approve saved conversion":"Approve coin creation"}
                         <Icon name="wallet" />
                       </button>
                       <button
@@ -906,7 +908,7 @@ export default function App() {
                 ],
                 [
                   "Who receives the initial buy?",
-                  "Your connected Solana launching wallet. Enter the initial buy in SOL. An exact-input swap converts SOL to NEAR first. Once finalized, a separate wallet approval creates and buys your coin. If creation fails or you stop, the converted NEAR stays in your wallet. An onchain failure can still incur its network fee.",
+                  "Your connected Solana launching wallet. Enter the initial buy in SOL. New buys combine the internal NEAR conversion, creation and purchase in one transaction, with approval available only after the full simulation and wallet-capacity checks pass. Existing finalized conversions retain their saved recovery path. An onchain failure can still incur its network fee.",
                 ],
                 [
                   "Is this an official NEAR or Pump.fun product?",

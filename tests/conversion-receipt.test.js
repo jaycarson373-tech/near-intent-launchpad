@@ -4,8 +4,9 @@ import { Keypair, PublicKey } from "@solana/web3.js";
 import {
   getAssociatedTokenAddressSync,
   TOKEN_PROGRAM_ID,
+  TOKEN_2022_PROGRAM_ID,
 } from "@solana/spl-token";
-import { verifyConversionReceipt } from "../server/pump-launch.js";
+import { verifyConversionReceipt,verifyAtomicLaunchReceipt } from "../server/pump-launch.js";
 import { NEAR, SOL } from "../lib/solana-rpc.mjs";
 const creator = Keypair.generate().publicKey.toBase58(),
   ata = getAssociatedTokenAddressSync(
@@ -67,6 +68,17 @@ test("conversion credit must reach the exact wallet ATA and meet its saved floor
       ),
     /minimum/,
   );
+});
+test('atomic settlement preserves prior NEAR and proves the bought token reached its exact ATA',()=>{
+  const mint=Keypair.generate().publicKey.toBase58(),base=getAssociatedTokenAddressSync(new PublicKey(mint),new PublicKey(creator),false,TOKEN_2022_PROGRAM_ID).toBase58();
+  const atomicKeys=[creator,ata,base],atomicMessage={getAccountKeys:()=>({get:i=>new PublicKey(atomicKeys[i])})};
+  const prize={...row(2,mint,'10'),programId:TOKEN_2022_PROGRAM_ID.toBase58()};
+  const tx={transaction:{message:atomicMessage},meta:{...meta,preTokenBalances:[row(1,NEAR,'100')],postTokenBalances:[row(1,NEAR,'101'),prize]}};
+  const d={...record,mint,atomicSolBuy:true};
+  assert.doesNotThrow(()=>verifyAtomicLaunchReceipt(tx,d));
+  assert.throws(()=>verifyAtomicLaunchReceipt({...tx,meta:{...tx.meta,postTokenBalances:[row(1,NEAR,'99'),prize]}},d),/minimum/);
+  for(const bad of [{...prize,owner:Keypair.generate().publicKey.toBase58()},{...prize,programId:TOKEN_PROGRAM_ID.toBase58()},{...prize,uiTokenAmount:{amount:'0'}}])
+    assert.throws(()=>verifyAtomicLaunchReceipt({...tx,meta:{...tx.meta,postTokenBalances:[row(1,NEAR,'101'),bad]}},d),/credit/);
 });
 test("a conversion cannot silently spend another token or change its custody", () => {
   const other = Keypair.generate().publicKey.toBase58(),

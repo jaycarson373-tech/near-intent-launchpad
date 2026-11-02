@@ -1,4 +1,5 @@
 import {solConversion,walletTokenState,verifyConversionEffects} from '../lib/sol-dev-buy.mjs';
+import {compactTokenSetup,assertLaunchTraceBudget,blockedLaunchResult} from '../lib/launch-budget.mjs';
 import {rewardReadiness,POLICY_HASH} from '../lib/reward-readiness.mjs';
 // PennyFun's reviewed creation/immutable-fee flow, adapted to the verified wNEAR quote.
 import { randomUUID, createHash } from "node:crypto";
@@ -193,15 +194,21 @@ export async function prepare(raw) {
     fail(
       "This mint already exists. Recover the saved launch before preparing another.",
     );
-  let funding=null;
+  let funding=null, route=null, tracked=[];
   if(input.devBuySolRaw>0n){
-    if(!raw.fundingId)return prepareConversion(input,c,rewards);
+    if(!raw.fundingId){
+      route=await solConversion(creator.toBase58(),input.devBuySolRaw,{mint:mint.toBase58(),treasury:rewards.treasury});
+      input.devBuyRaw=BigInt(route.minimumRaw);
+      tracked=await walletTokenState(rpc,creator.toBase58(),new Set(route.instructions.flatMap(ix=>ix.keys.map(k=>k.pubkey.toBase58()))));
+      if(tracked.some(r=>r.state.mint.toBase58()==='So11111111111111111111111111111111111111112'&&r.state.amount>0n))fail('Unwrap existing wrapped SOL before using a SOL initial buy.');
+    } else {
     if(!idOk(raw.fundingId))fail('Invalid saved SOL conversion.');
     funding=await read('funding/'+raw.fundingId+'.json');
     if(!funding||funding.creator!==creator.toBase58()||funding.mint!==mint.toBase58()||funding.devBuySolRaw!==String(input.devBuySolRaw)||funding.feeTreasury!==rewards.treasury)fail('The saved SOL conversion belongs to another wallet, mint, amount or treasury. No second conversion was requested.');
     input.devBuyRaw=BigInt(funding.devBuyRaw);
     const ata=getAssociatedTokenAddressSync(new PublicKey(NEAR),creator),info=await rpc.getAccountInfo(ata,'finalized');
     if(!info||unpackAccount(ata,info,TOKEN_PROGRAM_ID).amount<input.devBuyRaw)fail('The converted NEAR is no longer available in this wallet. No second SOL conversion was requested.');
+    }
   }
   const id = randomUUID(),
     site = origin(),
@@ -224,11 +231,14 @@ export async function prepare(raw) {
     devBuySolRaw: input.devBuySolRaw.toString(),
     quoteMint: NEAR,
     feeTreasury:rewards.treasury,rewardPolicyHash:POLICY_HASH,
-    phase:"launch",fundingId:funding?.id||null,fundingSignature:funding?.signature||null,
+    phase:"launch",atomicSolBuy:!!route,fundingId:funding?.id||null,fundingSignature:funding?.signature||null,
     createdAt: new Date().toISOString(),
     expiresAt: Date.now() + 90000,
   };
   let ixs = await instructions({ ...input, uri,feeTreasury:record.feeTreasury }, c);
+  // New SOL buys are all-or-nothing: never send a standalone swap. Existing
+  // finalized conversions keep their original recovery path and receipt.
+  ixs=await compactTokenSetup([...(route?.instructions||[]),...ixs],rpc);
   ixs.push(
     new TransactionInstruction({
       programId: new PublicKey("MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr"),
@@ -260,21 +270,21 @@ export async function prepare(raw) {
     commitment: "confirmed",
     minContextSlot: latest.context.slot,
   });
+  const trackedAddresses=route?[...new Set([...tracked.map(r=>r.address),getAssociatedTokenAddressSync(new PublicKey(NEAR),creator).toBase58()])]:[];
+  const simulationAddresses=[creator.toBase58(),pump.feeSharingConfigPda(mint).toBase58(),pump.bondingCurvePda(mint).toBase58(),...trackedAddresses];
   const sim = await rpc.simulateTransaction(tx, {
     sigVerify: false,
     commitment: "confirmed",
     minContextSlot: before.context.slot,
+    innerInstructions: true,
     accounts: {
       encoding: "base64",
-      addresses: [
-        creator.toBase58(),
-        pump.feeSharingConfigPda(mint).toBase58(),
-        pump.bondingCurvePda(mint).toBase58(),
-      ],
+      addresses: simulationAddresses,
     },
   });
   const after = sim.value.accounts?.[0]?.lamports;
   if (sim.value.err !== null) logSimulationFailure("review", "launch", sim);
+  assertLaunchTraceBudget(tx,sim);
   if (
     sim.value.err !== null ||
     sim.context.slot < before.context.slot ||
@@ -285,6 +295,7 @@ export async function prepare(raw) {
     fail(
       "Creation simulation did not pass. Check SOL for the initial buy, rent and network fees. No wallet approval was requested.",
     );
+  if(route)verifyConversionEffects(tracked,new Map(trackedAddresses.map((a,i)=>[a,sim.value.accounts?.[i+3]])),{creator:creator.toBase58(),mint:mint.toBase58(),minimumRaw:'0',atomicBuy:true});
   const sharesAccount = sim.value.accounts?.[1],
     curveAccount = sim.value.accounts?.[2];
   if (!sharesAccount || !curveAccount)
@@ -365,7 +376,7 @@ export async function prepare(raw) {
       "The public coin image could not be verified. No wallet approval was requested.",
     );
   return {
-    id,phase:"launch",fundingId:record.fundingId,
+    id,phase:"launch",atomicSolBuy:record.atomicSolBuy,fundingId:record.fundingId,
     mint: record.mint,
     wire: record.wire,
     expiresAt: record.expiresAt,
@@ -378,17 +389,6 @@ export async function prepare(raw) {
     quoteMint: NEAR,
     creator: record.creator,feeTreasury:record.feeTreasury,rewardPolicyHash:record.rewardPolicyHash,
   };
-}
-async function prepareConversion(input,c,rewards){
- const creator=input.creator.toBase58(),mint=input.mint.toBase58(),route=await solConversion(creator,input.devBuySolRaw,{mint,treasury:rewards.treasury}),tracked=await walletTokenState(c.rpc,creator,new Set(route.instructions.flatMap(ix=>ix.keys.map(k=>k.pubkey.toBase58())))),nearAta=getAssociatedTokenAddressSync(new PublicKey(NEAR),input.creator).toBase58(),addresses=[...new Set([...tracked.map(r=>r.address),nearAta])];
- if(tracked.some(r=>r.state.mint.toBase58()==='So11111111111111111111111111111111111111112'&&r.state.amount>0n))fail('Unwrap existing wrapped SOL before using a SOL initial buy.');
- await instructions({...input,devBuyRaw:BigInt(route.minimumRaw),feeTreasury:rewards.treasury,uri:origin()+'/api/metadata?id=preflight'},c);
- const id=randomUUID(),latest=await c.rpc.getLatestBlockhashAndContext('confirmed'),tx=compileLaunchV1({payer:input.creator,latest:latest.value,instructions:route.instructions,computeUnitLimit:1000000}),before=await c.rpc.getBalanceAndContext(input.creator,{commitment:'confirmed',minContextSlot:latest.context.slot}),sim=await c.rpc.simulateTransaction(tx,{sigVerify:false,commitment:'confirmed',minContextSlot:before.context.slot,accounts:{encoding:'base64',addresses:[creator,...addresses]}}),after=sim.value.accounts?.[0]?.lamports;
- if(sim.value.err)logSimulationFailure("review","conversion",sim);
- if(sim.value.err||sim.context.slot<before.context.slot||!Number.isSafeInteger(before.value)||!Number.isSafeInteger(after)||before.value-after<Number(input.devBuySolRaw)||BigInt(before.value-after)>input.devBuySolRaw+10000000n||after<30000000)fail('The SOL conversion did not pass simulation, or leaves insufficient SOL for creation. No payment was requested.');
- verifyConversionEffects(tracked,new Map(addresses.map((a,i)=>[a,sim.value.accounts?.[i+1]])),{creator,mint,minimumRaw:route.minimumRaw});
- const record={id,phase:'conversion',creator,mint,name:input.name,symbol:input.symbol,creatorFeeBps:input.creatorFeeBps,devBuySolRaw:String(input.devBuySolRaw),devBuyRaw:route.minimumRaw,feeTreasury:rewards.treasury,rewardPolicyHash:POLICY_HASH,wire:Buffer.from(tx.serialize()).toString('base64'),lastValidBlockHeight:latest.value.lastValidBlockHeight,expiresAt:Date.now()+45000,estimatedSolRaw:String(before.value-after+500000)};
- await create('drafts/'+id+'.json',record);return record;
 }
 export function verifyConversionReceipt(tx,d){
  const keys=tx.transaction.message.getAccountKeys({accountKeysFromLookups:tx.meta.loadedAddresses}),ata=getAssociatedTokenAddressSync(new PublicKey(NEAR),new PublicKey(d.creator)).toBase58();let received=0n;const before=new Map((tx.meta.preTokenBalances||[]).map(r=>[r.accountIndex,r])),after=new Map((tx.meta.postTokenBalances||[]).map(r=>[r.accountIndex,r]));for(const index of new Set([...before.keys(),...after.keys()])){const a=before.get(index),b=after.get(index);if(a?.owner!==d.creator&&b?.owner!==d.creator)continue;if(a&&b&&(a.owner!==b.owner||a.mint!==b.mint||a.programId!==b.programId))fail('Conversion receipt changed token ownership.');const delta=BigInt(b?.uiTokenAmount.amount||'0')-BigInt(a?.uiTokenAmount.amount||'0');if(keys.get(index)?.toBase58()===ata){if(b?.mint!==NEAR||b.owner!==d.creator||b.programId!==TOKEN_PROGRAM_ID.toBase58())fail('Conversion receipt has an invalid destination.');received+=delta;}else if(a?.mint!=='So11111111111111111111111111111111111111112'&&delta<0n)fail('Conversion receipt consumed another wallet token.');}
@@ -482,6 +482,7 @@ export async function status(id, signature, broadcast = false) {
     );
     if (state.decimals !== 6 || state.freezeAuthority !== null)
       fail("The launched mint differs from the supported token standard.");
+    if(d.atomicSolBuy)verifyAtomicLaunchReceipt(tx,d);
     const coin = {
       ...d,
       signature,
@@ -510,6 +511,11 @@ export async function status(id, signature, broadcast = false) {
         "The transaction is expired or uncertain. Keep the original signature for reconciliation; no second payment was requested.",
     };
   }
+  if(!broadcast){
+    const [rejected,attempted]=await Promise.all([read('submission-checks/'+id+'.json'),read('broadcasts/'+id+'.json')]);
+    if(rejected?.signature===signature&&!attempted)return blockedLaunchResult(d,signature,rejected.error);
+    return {status:'checking',signature,mint:d.mint};
+  }
   if (broadcast) {
     const signed = decodeLaunchTransaction(Buffer.from(saved.wire, "base64"));
     const before = await rpc.getBalanceAndContext(
@@ -524,9 +530,9 @@ export async function status(id, signature, broadcast = false) {
     });
     if (sim.value.err !== null) logSimulationFailure("submit", d.phase, sim);
     if (sim.value.err !== null)
-      fail(
-        "The signed launch no longer passes simulation. The original receipt is preserved.",
-      );
+      return recordBlocked(d,saved,JSON.stringify(sim.value.err).includes('MaxInstructionTraceLengthExceeded')
+        ?'The signed transaction exceeds Solana’s instruction limit after wallet security checks. Submission was blocked; your original receipt is preserved.'
+        :'The signed launch no longer passes simulation. Submission was blocked; your original receipt is preserved.');
     const fee = (await rpc.getFeeForMessage(signed.message, "confirmed")).value;
     const after = sim.value.accounts?.[0]?.lamports;
     if (
@@ -536,13 +542,14 @@ export async function status(id, signature, broadcast = false) {
       after >= before.value ||
       BigInt(before.value - after) > BigInt(d.estimatedSolRaw)
     )
-      fail(
+      return recordBlocked(d,saved,
         "The signed launch exceeds its reviewed SOL budget. The original receipt is preserved.",
       );
     if (fee === null || fee > 500000)
-      fail(
+      return recordBlocked(d,saved,
         "The wallet changed the network fee beyond the reviewed limit. Nothing was broadcast.",
       );
+    await createOnce('broadcasts/'+id+'.json',{id,signature,attemptedAt:Date.now()},(a,b)=>a.signature===b.signature);
     const sent = await rpc.sendRawTransaction(
       Buffer.from(saved.wire, "base64"),
       { skipPreflight: false, maxRetries: 0 },
@@ -551,6 +558,21 @@ export async function status(id, signature, broadcast = false) {
       fail("The RPC returned a mismatched transaction signature.");
   }
   return { status: "submitted", signature, mint: d.mint };
+}
+async function recordBlocked(d,saved,error){
+  await createOnce('submission-checks/'+d.id+'.json',{id:d.id,signature:saved.signature,error,checkedAt:Date.now()},(a,b)=>a.signature===b.signature);
+  return blockedLaunchResult(d,saved.signature,error);
+}
+export function verifyAtomicLaunchReceipt(tx,d){
+  // The exact signed message has already been verified. Its swap must not
+  // consume pre-existing NEAR or another wallet token, and its buy must credit
+  // the new mint to the launching wallet's canonical Token-2022 account.
+  verifyConversionReceipt(tx,{...d,devBuyRaw:'0'});
+  const keys=tx.transaction.message.getAccountKeys({accountKeysFromLookups:tx.meta.loadedAddresses});
+  const ata=getAssociatedTokenAddressSync(new PublicKey(d.mint),new PublicKey(d.creator),false,TOKEN_2022_PROGRAM_ID).toBase58();
+  const bought=(tx.meta.postTokenBalances||[]).find(r=>keys.get(r.accountIndex)?.toBase58()===ata);
+  if(!bought||bought.mint!==d.mint||bought.owner!==d.creator||bought.programId!==TOKEN_2022_PROGRAM_ID.toBase58()||BigInt(bought.uiTokenAmount.amount)<=0n)
+    fail('The atomic launch receipt did not credit its initial buy to the launching wallet.');
 }
 export async function walletBalance(value) {
   const user = validateBalanceAddress(value),

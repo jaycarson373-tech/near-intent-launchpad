@@ -50,6 +50,7 @@ export type Review = {
   feeTreasury:string;rewardPolicyHash:string;
   id: string;
   phase?:"conversion"|"launch";
+  atomicSolBuy?:boolean;
   fundingId?:string|null;
   mint: string;
   wire: string;
@@ -284,7 +285,7 @@ export function useSolanaLaunch() {
         saved = { creator, privateKey: pair.privateKey, publicKey, details };
       } else {
         // A finalized conversion only funds the exact SOL amount it converted. A new
-        // nonzero amount needs its own wallet-approved conversion; the old NEAR stays.
+        // nonzero amount needs a new atomic review; the old NEAR stays.
         const next = lamports(details.devBuySol),
           converted = saved.fundingSolRaw ?? lamports(saved.details.devBuySol);
         if (saved.fundingId && next && next !== "0" && next !== converted) {
@@ -311,7 +312,7 @@ export function useSolanaLaunch() {
       setStage("review");
       setMessage(
         amountChanged
-          ? "New amount needs its own SOL conversion. Your earlier NEAR stays in your wallet."
+          ? "New amount prepared as one SOL buy and launch. Your earlier NEAR stays in your wallet."
           : "Simulation passed. Review the costs before approving in your wallet.",
       );
     } catch (e) {
@@ -324,7 +325,7 @@ export function useSolanaLaunch() {
         dropFunding(held);
         await launchDraft("put", key, held);
         setMessage(
-          "This amount needs a new SOL conversion. Your earlier NEAR stays in your wallet. Prepare again.",
+          "This amount needs a new atomic launch review. Your earlier NEAR stays in your wallet. Prepare again.",
         );
       } else setMessage((e as Error).message);
     } finally {
