@@ -10,11 +10,12 @@ import {fundingRequest,checkedQuote,depositActions,nearAmount,NEAR_ASSET,SOL_ASS
 import {NEAR} from '../lib/solana-rpc.mjs';
 const a=Keypair.generate(),m=Keypair.generate(),destination=Keypair.generate();
 const image='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a5foAAAAASUVORK5CYII=';
-const valid={creator:a.publicKey.toBase58(),mint:m.publicKey.toBase58(),name:'NEAR Community',symbol:'nearcoin',description:'A community coin',image,creatorFeeBps:30,devBuyNear:'0.000000001'};
-test('launch validates exact NEAR units, every supported fee, UTF-8 and image contents',()=>{
- for(const bps of [30,50,100,200,300]){const p=validate({...valid,creatorFeeBps:bps});assert.equal(p.devBuyRaw,1n);assert.equal(p.symbol,'NEARCOIN');assert.equal(p.creatorFeeBps,bps)}
+const valid={creator:a.publicKey.toBase58(),mint:m.publicKey.toBase58(),name:'NEAR Community',symbol:'nearcoin',description:'A community coin',image,creatorFeeBps:30,devBuySol:'0.000000001'};
+test('launch validates exact SOL purchase units, every supported fee, UTF-8 and image contents',()=>{
+ for(const bps of [30,50,100,200,300]){const p=validate({...valid,creatorFeeBps:bps});assert.equal(p.devBuySolRaw,1n);assert.equal(p.devBuyRaw,0n);assert.equal(p.symbol,'NEARCOIN');assert.equal(p.creatorFeeBps,bps)}
  assert.equal(units('1000'),1000000000000n);
- for(const devBuyNear of ['-1','1e2','01','0.0000000001','1000.000000001'])assert.throws(()=>validate({...valid,devBuyNear}));
+ for(const devBuySol of ['-1','1e2','01','0.0000000001','100.000000001'])assert.throws(()=>validate({...valid,devBuySol}));
+ assert.throws(()=>validate({...valid,devBuyNear:'1'}),/now uses SOL/);
  for(const creatorFeeBps of [0,31,'30',301])assert.throws(()=>validate({...valid,creatorFeeBps}));
  assert.throws(()=>validate({...valid,name:'🌱'.repeat(9)}));assert.throws(()=>validate({...valid,mint:valid.creator}));
  assert.throws(()=>validate({...valid,image:image.replace('image/png','image/jpeg')}));

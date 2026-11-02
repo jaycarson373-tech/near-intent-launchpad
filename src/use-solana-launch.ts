@@ -9,6 +9,7 @@ import {
   cloutPaymentSignature,
 } from "../lib/launch-signatures.mjs";
 export type Coin = {
+  feeTreasury:string;rewardPolicyHash:string|null;
   mint: string;
   name: string;
   symbol: string;
@@ -33,7 +34,7 @@ export type CoinDraft = {
   website: string;
   twitter: string;
   creatorFeeBps: number;
-  devBuyNear: string;
+  devBuySol: string;
 };
 export const EMPTY_COIN: CoinDraft = {
   name: "",
@@ -43,15 +44,17 @@ export const EMPTY_COIN: CoinDraft = {
   website: "",
   twitter: "",
   creatorFeeBps: 30,
-  devBuyNear: "0",
+  devBuySol: "0",
 };
 export type Review = {
+  feeTreasury:string;rewardPolicyHash:string;
   id: string;
   mint: string;
   wire: string;
   expiresAt: number;
   estimatedSolRaw: string;
   devBuyRaw: string;
+  devBuySolRaw?:string;
   creatorFeeBps: number;
   name: string;
   symbol: string;
@@ -223,7 +226,7 @@ export function useSolanaLaunch() {
     }
     lock.current = true;
     setBusy(true);
-    setMessage("Checking your NEAR balance and simulating coin creation.");
+    setMessage("Checking the SOL purchase route and simulating coin creation.");
     const creator = connected.account.address,
       key = "mainnet:" + creator;
     try {

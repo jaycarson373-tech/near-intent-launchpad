@@ -2279,3 +2279,18 @@ dialog.modal-overlay {
 dialog.modal-overlay::backdrop {
   background: #0009;
 }
+
+/* Funding-to-launch motion: packets follow the original mesh, with no fake activity. */
+.mesh-body{transform-origin:55% 50%;animation:mesh-breathe 14s ease-in-out infinite}
+.mesh-current{stroke-dasharray:18 660;animation:mesh-current 7s linear infinite;opacity:.65}
+.mesh-packet{offset-path:path('M 90 384 C 328 326, 228 159, 567 83');animation:mesh-packet 8s cubic-bezier(.45,0,.35,1) infinite;filter:drop-shadow(0 0 6px #a4ffd0)}
+.mesh-packet.second{animation-delay:-4s;animation-duration:11s;opacity:.7}
+.mesh-beacon{transform-origin:419px 172px;animation:mesh-beacon 4s ease-out infinite}
+.intent-mesh[data-active="false"] *{animation-play-state:paused}
+@keyframes mesh-current{from{stroke-dashoffset:700}to{stroke-dashoffset:0}}
+@keyframes mesh-packet{0%{offset-distance:0%;opacity:0}8%,85%{opacity:1}100%{offset-distance:100%;opacity:0}}
+@keyframes mesh-breathe{0%,100%{transform:translateY(0) rotate(-.7deg)}50%{transform:translateY(-9px) rotate(.7deg)}}
+@keyframes mesh-beacon{0%{transform:scale(.65);opacity:.7}100%{transform:scale(1.8);opacity:0}}
+@media(prefers-reduced-motion:reduce){.mesh-current,.mesh-packet,.mesh-beacon{display:none}.mesh-body{animation:none}}
+.holder-rewards{margin-top:24px;padding:24px}.holder-rewards h2{font-size:23px;margin:8px 0 12px}.holder-rewards .reward-metrics{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px;margin:20px 0}.reward-metrics span{display:block;color:var(--muted);font-size:11px;margin-bottom:7px}.reward-metrics strong{font-size:19px;font-weight:500}.reward-receipt{display:flex;justify-content:space-between;gap:12px;padding:12px 0;border-top:1px solid var(--line);font-size:12px}.reward-receipt a{color:var(--mint)}.reward-receipt span{overflow-wrap:anywhere}.rewards-note{font-size:12px;color:var(--muted);line-height:1.7}
+@media(max-width:600px){.holder-rewards{padding:18px}.holder-rewards .reward-metrics{gap:12px}.reward-metrics strong{font-size:15px}.reward-receipt{flex-wrap:wrap}}

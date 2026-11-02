@@ -371,7 +371,7 @@ export default function App() {
                 <p>
                   Launch a coin paired with NEAR.
                   <br />
-                  Fund through Intents. Approve with your Solana wallet.
+                  Buy with SOL. Approve with your Solana wallet.
                 </p>
                 <div className="hero-actions">
                   <a
@@ -435,13 +435,13 @@ export default function App() {
                 {[
                   [
                     "01",
-                    "Fund with NEAR.",
-                    "Use Intents to receive wrapped NEAR on Solana. Keep SOL separately for account rent and gas.",
+                    "Buy with SOL.",
+                    "Your SOL converts to the NEAR needed for the initial buy, together with coin creation. Keep SOL for rent and gas.",
                   ],
                   [
                     "02",
                     "Make it yours.",
-                    "Set your name, ticker and creator fee. Review the simulated creation and optional NEAR buy.",
+                    "Set your name, ticker and creator fee. Review the simulated creation and optional SOL buy.",
                   ],
                   [
                     "03",
@@ -672,7 +672,7 @@ export default function App() {
                       </div>
                       <small>
                         Fixed at launch. Pump’s protocol fee is separate.
-                        Creator fees go to your launching wallet.
+                        65% funds this coin’s holder rewards. 35% is held in its reserve.
                       </small>
                     </fieldset>
                     <div className="funding-strip">
@@ -703,21 +703,20 @@ export default function App() {
                       </button>
                     </div>
                     <label className="dev-buy">
-                      Initial buy in NEAR{" "}
+                      Initial buy in SOL{" "}
                       <span className="optional">(optional)</span>
                       <input
                         type="number"
                         required
                         min="0"
-                        max="1000"
+                        max="100"
                         step="0.000000001"
-                        value={draft.devBuyNear}
-                        onChange={(e) => change({ devBuyNear: e.target.value })}
+                        value={draft.devBuySol}
+                        onChange={(e) => change({ devBuySol: e.target.value })}
                       />
                       <small>
                         0 skips the buy. Purchased coins go to your Solana
-                        wallet. SOL for account rent and network fees is
-                        separate.
+                        wallet. SOL converts to NEAR in the same transaction; account rent and network fees are extra.
                       </small>
                     </label>
                     <button
@@ -755,8 +754,8 @@ export default function App() {
                       ],
                       ["Paired with", "NEAR on Solana"],
                       ["Creator fee", launch.review.creatorFeeBps / 100 + "%"],
-                      ["Fee recipient", launch.review.creator],
-                      ["Initial buy", atoms(launch.review.devBuyRaw) + " NEAR"],
+                      ["Reward treasury", launch.review.feeTreasury],
+                      ["Initial buy", atoms(launch.review.devBuySolRaw || "0") + " SOL"],
                       [
                         "Estimated SOL debit",
                         atoms(launch.review.estimatedSolRaw) + " SOL",
@@ -811,8 +810,8 @@ export default function App() {
                         <Icon name="shield" />
                         <p>
                           The reviewed transaction creates your coin, locks its
-                          creator fee to your wallet and includes the optional
-                          NEAR buy. Review the total cost in your wallet.
+                          creator fee to the reward treasury and includes the optional
+                          SOL-funded buy. Review the total cost in your wallet.
                         </p>
                       </div>
                       <button
@@ -875,12 +874,12 @@ export default function App() {
                   "Solana mainnet, through Pump.fun. Its trading pair uses the verified wrapped NEAR mint on Solana, not a native NEAR token contract.",
                 ],
                 [
-                  "How do I fund with NEAR?",
-                  "Connect your Solana wallet, then open Fund with NEAR. Connect the NEAR account used for refunds, choose wNEAR for your initial buy or SOL for rent and gas, and review the exact Intents quote. The deposit and the launch are separate approvals.",
+                  "Can I still fund through Intents?",
+                  "Connect your Solana wallet, then open Fund with NEAR. Connect the NEAR account used for refunds, choose SOL to fund the initial buy, rent and gas, and review the exact Intents quote. The deposit and the launch are separate approvals.",
                 ],
                 [
                   "Where do creator fees go?",
-                  "The selected creator-fee rate is fixed at launch, with 100% of those creator fees assigned to your launching wallet. Pump’s protocol fees are separate. You can manage fee collection through the supported Pump.fun tools.",
+                  "Every 15 minutes, the worker checks confirmed creator fees. 65% funds proportional wNEAR rewards for that coin’s eligible direct-wallet holders, while 35% remains reserved. Pump’s protocol fee is separate. Tiny rewards carry forward until they cover the minimum transfer size.",
                 ],
                 [
                   "What happens if confirmation is delayed?",
@@ -891,8 +890,12 @@ export default function App() {
                   "After the launch finalizes and the server verifies the exact approved transaction, token mint and immutable creator-fee assignment. The public directory and coin page use confirmed records. Market charts appear only once a supported trading pair is indexed.",
                 ],
                 [
+                  "When is the reserve released?",
+                  "When verified hourly volume falls below half its recent baseline, up to 5% of the reserve is released per 15-minute cycle, capped at 20% of the day’s opening reserve. Eight consecutive volume observations are required. Unavailable data keeps the reserve held.",
+                ],
+                [
                   "Who receives the initial buy?",
-                  "Your connected Solana launching wallet. The buy is paid in wrapped NEAR already in that wallet, with the reviewed amount as a hard spending cap. SOL covers account rent and network fees.",
+                  "Your connected Solana launching wallet. Enter the initial buy in SOL. An exact-input swap converts SOL to NEAR and buys your coin in the same transaction. If any step fails, the whole transaction reverts; a failed onchain transaction can still incur its network fee. Account rent and network costs are shown separately.",
                 ],
                 [
                   "Is this an official NEAR or Pump.fun product?",
@@ -949,7 +952,7 @@ export default function App() {
           Independent, built around NEAR. Coins are speculative and can lose all
           value.
         </p>
-        <span>© {YEAR} Intent Pad</span>
+        <span>© {YEAR} Intent Pad · $INTENT</span>
       </footer>
       {(notice || (route.page !== "launch" && launch.message)) && (
         <div className="toast" role="status">
@@ -981,8 +984,7 @@ export default function App() {
               </button>
             </div>
             <p className="page-lede">
-              Your wallet approves coin creation and receives your coins and
-              creator fees.
+              Your wallet approves coin creation and receives your initial buy. Creator fees fund holder rewards.
             </p>
             {launch.wallets.length ? (
               launch.wallets.map((w) => (
@@ -1014,6 +1016,11 @@ export default function App() {
       )}
     </div>
   );
+}
+function HolderRewards({mint}:{mint:string}){
+ const [data,setData]=useState<{claimedRaw:string;distributedRaw:string;reserveRaw:string;outstandingRaw:string;updatedAt:number;lastSnapshot:{slot:number;root:string}|null;payouts:{signature:string;owner:string;raw:string;time:number}[]}|null>(null),[error,setError]=useState(false);
+ useEffect(()=>{let active=true;const refresh=()=>api<{rewards:typeof data}>("/api/rewards?mint="+mint).then(r=>{if(active){setData(r.rewards);setError(false)}}).catch(()=>{if(active)setError(true)});void refresh();const timer=setInterval(()=>{if(document.visibilityState==='visible')void refresh()},30000);return ()=>{active=false;clearInterval(timer)}},[mint]);
+ return <section className="holder-rewards panel"><span className="eyebrow">THIS COIN’S HOLDER REWARDS</span><h2>Creator fees, back to holders.</h2><p className="rewards-note">Every 15 minutes, 65% of confirmed creator fees fund proportional wNEAR rewards. 35% stays reserved for quieter markets.</p>{data?<><div className="reward-metrics">{[["Fees claimed",data.claimedRaw],["Airdropped",data.distributedRaw],["Treasury reserve",data.reserveRaw]].map(([label,value])=><div key={label}><span>{label}</span><strong>{atoms(value)} wNEAR</strong></div>)}</div><p className="rewards-note">{data.lastSnapshot?<>Latest observed finalized snapshot · slot {data.lastSnapshot.slot.toLocaleString()} · <span title={data.lastSnapshot.root}>{data.lastSnapshot.root.slice(0,12)}…</span></>:"Awaiting the first completed holder snapshot."} {atoms(data.outstandingRaw)} wNEAR in accrued holder credits. Updated {new Date(data.updatedAt*1000).toLocaleTimeString()}.</p>{data.payouts.length?data.payouts.slice(0,6).map((r,i)=><div className="reward-receipt" key={r.signature+':'+i}><span>{short(r.owner)} · {atoms(r.raw)} wNEAR</span><a href={'https://solscan.io/tx/'+r.signature} target="_blank" rel="noreferrer">Confirmed transfer <Icon name="arrow" size={12}/></a></div>):<p className="rewards-note">No confirmed airdrops yet. Transfers appear here after onchain confirmation.</p>}</>:<p className="rewards-note">{error?"Reward records are temporarily unavailable. Refresh to check again.":"The first verified claim, snapshot and airdrop records will appear here. No distribution has been recorded yet."}</p>}</section>;
 }
 function CoinPage({
   mint,
@@ -1161,6 +1168,7 @@ function CoinPage({
           </div>
         ))}
       </div>
+      {c.rewardPolicyHash && <HolderRewards mint={c.mint}/>}
       <div className="token-workspace">
         <section className="market-panel panel">
           <div className="panel-heading">
@@ -1247,8 +1255,8 @@ function CoinPage({
                 <dd>{c.creatorFeeBps / 100}%</dd>
               </div>
               <div>
-                <dt>Fee recipient</dt>
-                <dd title={c.creator}>{short(c.creator)}</dd>
+                <dt>Reward treasury</dt>
+                <dd title={c.feeTreasury}>{short(c.feeTreasury)}</dd>
               </div>
               <div>
                 <dt>Created</dt>

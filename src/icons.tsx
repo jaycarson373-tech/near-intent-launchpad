@@ -1,4 +1,4 @@
-import type { CSSProperties } from "react";
+import {useEffect,useRef,useState,type CSSProperties} from "react";
 export function Icon({
   name,
   size = 18,
@@ -105,9 +105,11 @@ export function IntentMark() {
   );
 }
 export function IntentMesh() {
+  const ref=useRef<SVGSVGElement>(null),[active,setActive]=useState(false);
+  useEffect(()=>{const element=ref.current;if(!element)return;const observer=new IntersectionObserver(([entry])=>setActive(entry.isIntersecting),{threshold:.1});observer.observe(element);return ()=>observer.disconnect()},[]);
   return (
     <svg
-      className="intent-mesh"
+      ref={ref} data-active={active} className="intent-mesh"
       viewBox="0 0 640 470"
       fill="none"
       aria-hidden="true"
@@ -126,6 +128,7 @@ export function IntentMesh() {
           <stop offset="1" stopColor="#adffe0" stopOpacity=".06" />
         </linearGradient>
       </defs>
+      <g className="mesh-body">
       {Array.from({ length: 49 }, (_, i) => (
         <path
           key={i}
@@ -135,6 +138,11 @@ export function IntentMesh() {
           opacity={0.25 + Math.sin((i / 49) * Math.PI) * 0.5}
         />
       ))}
+      {[8,18,30,40].map((i)=><path key={'flow'+i} className="mesh-current" style={{animationDelay:-(i/7)+'s'}} d={`M ${70+i*1.1} ${420-i*2} C ${305+i*1.3} ${405-i*4.4}, ${195+i*1.8} ${76+i*4.6}, ${553+i*.8} ${36+i*2.6}`} stroke="#c6ffe4" strokeWidth="1.3" strokeLinecap="round" />)}
+      <circle className="mesh-packet" r="2.5" fill="#c6ffe4" />
+      <circle className="mesh-packet second" r="1.8" fill="#a4ffd0" />
+      </g>
+      <circle className="mesh-beacon" cx="419" cy="172" r="17" stroke="#a4ffd0" strokeOpacity=".2" />
       <circle cx="419" cy="172" r="3" fill="#a4ffd0" />
       <circle cx="419" cy="172" r="12" stroke="#a4ffd0" strokeOpacity=".24" />
       <path d="M440 172h77" stroke="#a4ffd0" strokeOpacity=".22" />
