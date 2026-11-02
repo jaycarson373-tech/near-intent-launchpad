@@ -18,3 +18,19 @@ test("unexpected errors are logged without RPC keys, URLs or long blobs", () => 
     assert.doesNotMatch(lines[0], /api-key=k|x\.example/);
   } finally { console.error = old; }
 });
+test("a rejected simulation logs its program error and last logs, redacted", async () => {
+  const { logSimulationFailure } = await import("../lib/http.js");
+  const lines = [], old = console.error;
+  console.error = (l) => lines.push(l);
+  try {
+    logSimulationFailure("submit", "launch", {
+      context: { slot: 7 },
+      value: { err: { InstructionError: [3, { Custom: 6023 }] }, unitsConsumed: 1, logs: ["Program log: Error: TooMuchSolRequired", "see https://x.example/?api-key=k"] },
+    });
+  } finally { console.error = old; }
+  const entry = JSON.parse(lines[0]);
+  assert.equal(entry.simulationFailed, "submit");
+  assert.match(entry.err, /6023/);
+  assert.match(entry.logs.join(" "), /TooMuchSolRequired/);
+  assert.doesNotMatch(lines[0], /api-key=k|x\.example/);
+});

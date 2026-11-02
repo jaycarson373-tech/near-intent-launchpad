@@ -35,7 +35,7 @@ import {
   records,
   removePointer,
 } from "../lib/store.js";
-import { fail, origin } from "../lib/http.js";
+import { fail, origin, logSimulationFailure } from "../lib/http.js";
 import {
   validate,
   publicCoin,
@@ -274,6 +274,7 @@ export async function prepare(raw) {
     },
   });
   const after = sim.value.accounts?.[0]?.lamports;
+  if (sim.value.err !== null) logSimulationFailure("review", "launch", sim);
   if (
     sim.value.err !== null ||
     sim.context.slot < before.context.slot ||
@@ -383,6 +384,7 @@ async function prepareConversion(input,c,rewards){
  if(tracked.some(r=>r.state.mint.toBase58()==='So11111111111111111111111111111111111111112'&&r.state.amount>0n))fail('Unwrap existing wrapped SOL before using a SOL initial buy.');
  await instructions({...input,devBuyRaw:BigInt(route.minimumRaw),feeTreasury:rewards.treasury,uri:origin()+'/api/metadata?id=preflight'},c);
  const id=randomUUID(),latest=await c.rpc.getLatestBlockhashAndContext('confirmed'),tx=compileLaunchV1({payer:input.creator,latest:latest.value,instructions:route.instructions,computeUnitLimit:1000000}),before=await c.rpc.getBalanceAndContext(input.creator,{commitment:'confirmed',minContextSlot:latest.context.slot}),sim=await c.rpc.simulateTransaction(tx,{sigVerify:false,commitment:'confirmed',minContextSlot:before.context.slot,accounts:{encoding:'base64',addresses:[creator,...addresses]}}),after=sim.value.accounts?.[0]?.lamports;
+ if(sim.value.err)logSimulationFailure("review","conversion",sim);
  if(sim.value.err||sim.context.slot<before.context.slot||!Number.isSafeInteger(before.value)||!Number.isSafeInteger(after)||before.value-after<Number(input.devBuySolRaw)||BigInt(before.value-after)>input.devBuySolRaw+10000000n||after<30000000)fail('The SOL conversion did not pass simulation, or leaves insufficient SOL for creation. No payment was requested.');
  verifyConversionEffects(tracked,new Map(addresses.map((a,i)=>[a,sim.value.accounts?.[i+1]])),{creator,mint,minimumRaw:route.minimumRaw});
  const record={id,phase:'conversion',creator,mint,name:input.name,symbol:input.symbol,creatorFeeBps:input.creatorFeeBps,devBuySolRaw:String(input.devBuySolRaw),devBuyRaw:route.minimumRaw,feeTreasury:rewards.treasury,rewardPolicyHash:POLICY_HASH,wire:Buffer.from(tx.serialize()).toString('base64'),lastValidBlockHeight:latest.value.lastValidBlockHeight,expiresAt:Date.now()+45000,estimatedSolRaw:String(before.value-after+500000)};
@@ -520,6 +522,7 @@ export async function status(id, signature, broadcast = false) {
       minContextSlot: before.context.slot,
       accounts: { encoding: "base64", addresses: [d.creator] },
     });
+    if (sim.value.err !== null) logSimulationFailure("submit", d.phase, sim);
     if (sim.value.err !== null)
       fail(
         "The signed launch no longer passes simulation. The original receipt is preserved.",
