@@ -1,6 +1,10 @@
 # Intent Pad
 
-Native NEAR token launchpad.
+NEAR-paired Pump.fun launches on Solana, with optional NEAR Intents funding.
+
+The current release uses Wallet Standard signing, private durable reviews/outbox storage, finalized launch receipts and real coin pages. See [the release and configuration notes](RELEASE_NEAR_SOLANA.md) for the implemented flow, environment variables, verification and remaining funded acceptance.
+
+The sections below document the retained, earlier native NEAR implementation. Its contracts, read/verification APIs, history and share-link inspection remain available; it is not the new Solana creation flow.
 
 ## Native launch flow
 
@@ -10,7 +14,7 @@ The bundled WASM was built from NEAR's official FT example at the commit in cont
 
 The contract account is funded for code/state storage plus a buffer; wallet gas is additional. Intent Pad charges no platform fee for native deployment in this version. It does not automatically create a liquidity pool or a new NEAR Intents route. A funded wallet deployment still requires integration verification before describing the product as launch-ready.
 
-Wallet support: the deployment transaction carries the ~201 KB contract (~270 KB encoded). Wallets that pass transactions through the URL cannot sign it (MyNearWallet returns HTTP 414), so only Meteor is offered. If the wallet returns no transaction hash, the pending launch stays on the device and can be verified later by pasting the hash under Your launches.
+Wallet support: the deployment transaction carries the ~201 KB contract (~270 KB encoded). Wallets that pass transactions through the URL cannot sign it (MyNearWallet returns HTTP 414), so only Meteor is offered. The NEAR funding step for Solana launches is a small transaction, so it also offers MyNearWallet.
 
 ## Data and discovery
 

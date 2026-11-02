@@ -11,13 +11,16 @@ Then read `docs/context/CURRENT.md` (status briefing, not an archive). Record de
 `python C:/AI/harness/cli.py decision --project near-intent-launchpad ...`. Unknown stays unknown.
 
 ## What it is
-Native NEAR token launchpad. Chain: NEAR (mainnet default; `VITE_NEAR_NETWORK=testnet` at build time for testnet).
-Stack: Vite + React 19 + TypeScript, `@near-wallet-selector` v10 (Meteor only), Node serverless APIs `api/near.js`
-(read-only RPC proxy: config, account, token, verify) and `api/catalog.js` (1Click NEAR asset directory), Railway host
-`server.mjs`. The user's wallet signs ONE transaction: CreateAccount + Transfer (storage funding) + DeployContract (pinned
-NEP-141 WASM from near-examples/FT, see `contracts/PROVENANCE.json`) + FunctionCall `new`. No access keys are added, so the
-token contract is not upgradeable. The site holds no keys and moves no money itself; the "Intent Pad token" buyback-and-burn
-economy is NOT live (no mint, collector or worker exists).
+Two launch paths, one site (Vite + React 19 + TypeScript; Node APIs in `api/`, Railway host `server.mjs`):
+1. **Solana coins paired with NEAR (main UI, since upstream a4fbfea/ebbcd9f, 2026-11-02).** `server/pump-launch.js` builds and
+   simulates a Pump.fun create (+ optional initial buy) quoted in NEAR-on-Solana (mint `3ZLekZYq2qkZiSpnSvabjit34tUkjSwD1JFuW9as9wBG`);
+   the user's Solana wallet signs (`src/use-solana-launch.ts`, wallet-standard), the server broadcasts, then verifies the
+   finalized receipt. Drafts/metadata in Vercel Blob. Optional NEAR → Solana funding via NEAR Intents 1Click (`lib/funding.js`,
+   `src/Funding.tsx`): the user's NEAR wallet signs a small `wrap.near` deposit. `/api/launch?action=health` reports readiness.
+2. **Native NEAR NEP-141 deploy (API + coin pages).** One wallet-signed tx: CreateAccount + Transfer + DeployContract (pinned
+   near-examples/FT WASM, `contracts/PROVENANCE.json`) + `new`. No access keys → not upgradeable. `/api/near` verifies it.
+The server holds no signing keys and moves no money itself. Server env (names only): `SOLANA_RPC_URL`, `BLOB_READ_WRITE_TOKEN`,
+`NEAR_INTENTS_JWT`, `APP_ORIGIN`, optional `NEAR_RPC_URL_MAINNET/TESTNET`.
 
 ## Commands
 Node 24 locally (package.json `engines` says 22.x; CI uses 22). Install from the lockfile: `npm ci`.
@@ -27,9 +30,9 @@ Contract (needs Rust 1.86.0 + wasm32 target + a cargo-near host; not installed o
 near-sandbox, near-workspaces and secp256k1 unless approved; the website does not need them.
 
 ## Rules specific to this repo
-- Money-moving path: `src/use-near-launch.ts` `launch()` asks the user's wallet to sign a mainnet deployment that spends
-  ~2.45 NEAR of THEIR funds. Agents never sign it. A funded end-to-end test needs explicit per-action owner approval;
-  prefer testnet first.
+- Money-moving paths (all signed by the USER's wallet): Solana create/buy (`server/pump-launch.js` prepare/submit,
+  `src/use-solana-launch.ts`), 1Click funding deposit (`use-near-launch.ts` `fund()`), native NEAR deploy (`launch()`,
+  ~2.45 NEAR). Agents never sign. A funded end-to-end test needs explicit per-action owner approval.
 - Never change `public/contracts/fungible-token.wasm` or `lib/contract-manifest.js` by hand: the manifest's sha256/codeHash
   are what the browser and `api/near.js verify` check. Rebuild only through `contract:build` + `contract:test`.
 - Launch verification is bound to the reviewed tx shape (`lib/launch-verification.js`); a draft, a wallet request or a
@@ -37,8 +40,9 @@ near-sandbox, near-workspaces and secp256k1 unless approved; the website does no
 - RPC: default keyless FastNEAR (`free.rpc.fastnear.com` / `test.rpc.fastnear.com`); `NEAR_RPC_URL_MAINNET` /
   `NEAR_RPC_URL_TESTNET` (server-only) override with a keyed provider. `rpc.*.near.org` is deprecated and throttled.
   One attempt per request; 429 → back off, never loop.
-- Wallets: the deploy tx is ~270 KB+ encoded. Wallets that pass transactions in the URL (MyNearWallet → HTTP 414) cannot
-  sign it. Check the transport before adding a wallet module (and ask before adding the dependency).
+- NEAR wallets: the native deploy tx is ~270 KB+ encoded; URL-transport wallets (MyNearWallet → HTTP 414) cannot sign it, so
+  native deploys offer Meteor only. Funding (small tx) offers Meteor + MyNearWallet. Ask before adding a wallet dependency.
+- Solana: follow `C:/Users/PC/Projects/Crypto/shared/tx-safety-checklist.md` and `solana-rpc-efficiency.md`.
 - Secrets are server-only; never in `VITE_*`. Never read `.env*` with real values. Raw token units are BigInt/decimal strings.
 - Copy follows the machine front-end rules (`C:/Users/PC/.claude/lib/frontend-rules.md`) and
   `Crypto/shared/token-launch-credibility.md`: never pitch the buyback/burn as live until it is.

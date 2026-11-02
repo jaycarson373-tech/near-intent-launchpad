@@ -4,34 +4,21 @@ Objective: finish Intent Pad (native NEAR NEP-141 launchpad) and run it inside t
 templates/playbooks. Owner request 2026-11-02 (catalog op `near-intentpad-finish-request-2026-11-02`, project `crypto`).
 
 Verified baseline (2026-11-02, Actor: claude--near-intent-launchpad):
-- Live: https://near-intent-launchpad.vercel.app and `intent-pad-production.up.railway.app` serve commit d7769c8
-  (GitHub status: Vercel + Railway success, CI `verify` success). Site, `/api/near?action=config`, `/api/catalog`,
-  Railway `/health` answered 200.
-- No funded end-to-end launch on record (testnet or mainnet). The contract passed only the local near-sandbox test.
-- The Intent Pad token and its buyback-and-burn economy do not exist yet.
+- Upstream a4fbfea + ebbcd9f (owner's GitHub account, another tool, 2026-11-02 ~06:40 UTC) made the main product
+  **Pump.fun coins on Solana paired with NEAR**, with NEAR Intents (1Click) funding. Native NEAR deploy kept as API +
+  coin pages. Details and checks: `RELEASE_NEAR_SOLANA.md`. Live on Vercel + Railway; `/api/launch?action=health` ready.
+- This session merged its fixes on top (branch `finish/intentpad-2026-11-02`): FastNEAR RPC + cache + 429 handling, fast
+  verify (wait_until NONE), Meteor-only native deploys (MyNearWallet kept for the small funding tx), guarded wallet
+  results in launch() and fund(), Windows path fix + traversal tests, Vercel security headers, SHA-pinned CI, docs.
+  Checks after merge: npm test 30/30, lint exit 0, build OK. Upstream's UI was taken as-is (my copy/panel edits targeted
+  the old native UI that upstream removed).
+- No funded launch has happened on mainnet (Solana or native NEAR) or for 1Click funding.
 
-Uncommitted work on `main` (local only, not pushed; pushing `main` deploys):
-- RPC: FastNEAR keyless defaults + `NEAR_RPC_URL_MAINNET/TESTNET` override; storage price cache; 429 handling.
-- Verify: `tx` with `wait_until: NONE` (FINAL hung >30 s on unknown hashes), unknown → 404, not FINAL → 409 retry;
-  client retries 8 × 2 s.
-- Wallets: MyNearWallet removed (HTTP 414 on the ~270 KB deploy tx); Meteor only. Pending launch recovery by tx hash.
-- UI: buyback/burn tagged NOT LIVE; copy cut per front-end rules; BigInt supply display.
-- Server: Windows path-containment fix; Vercel security headers; CI actions SHA-pinned.
-- Onboarding: AGENTS.md, CLAUDE.md, .env.example, .gitignore baseline, registered as `near-intent-launchpad` (parent crypto).
-- Checks: `npm test` 19/19, lint 0 errors (3 pre-existing warnings), build OK; browser checked at desktop and 390 px.
-- Independent review (opus): no blockers; should-fix applied (a new launch no longer overwrites an unverified pending one);
-  notes applied: saved hash pre-filled, verify stops on 503, sibling-directory traversal test, clearer unknown-hash text.
-- Findings and sources: `Crypto/research/near/2026-11-02-intent-pad-launch-findings.md`.
-
-Open owner decisions:
-1. Commit + push to `main` (deploys to Vercel and Railway).
-2. Funded testnet launch with Meteor (testnet build `VITE_NEAR_NETWORK=testnet`), then a small mainnet launch: both
-   need explicit per-action approval and the owner's own wallet.
-3. More wallets (HOT, Intear, Sender…): new dependencies; check each transport for the ~270 KB limit first.
-4. Global contracts (NEP-591): deploy the FT WASM once (~20 NEAR burned) so each launch costs < 0.1 NEAR and fits any
-   wallet. Wallet-selector 10.1.4 / Meteor SDK show no `useGlobalContract` support yet.
-5. Move repo to `Crypto/near-intent-launchpad` (flatten script) when no session has it open.
-6. npm audit: 29 advisories (9 high), mostly dev/optional (cargo-near, near-workspaces) and Meteor's nanoid; fix needs
-   major bumps — review separately.
+Open owner items:
+1. Funded acceptance (owner's wallets, explicit approval): one small Solana launch + initial buy; one small 1Click deposit.
+2. `SOLANA_RPC_URL`: keyed mainnet RPC recommended before public traffic (public fallback is rate-limited). Whether it is
+   set in Vercel is unknown to this session (no Vercel CLI/auth here).
+3. Global contracts for native NEAR deploys; more NEAR wallets; npm audit majors; flatten move out of `projects/`.
+4. Findings: `Crypto/research/near/2026-11-02-intent-pad-launch-findings.md`.
 
 Shared memory project ID: `near-intent-launchpad`. Record decisions and failed attempts with sources using C:/AI/harness/cli.py and explicit --project. Do not infer this project's preferences from another project.
