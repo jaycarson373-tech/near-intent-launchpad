@@ -556,8 +556,8 @@ export default function App() {
                 </div>
               </div>
               <p className="small-note">
-                The trading pair uses wrapped NEAR on Solana. Intents funding
-                and coin creation are separate wallet approvals.
+                SOL initial buys are reviewed with your launch. Optional
+                Intents funding is separate.
               </p>
             </div>
             <div className="launch-form panel">
