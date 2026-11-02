@@ -72,7 +72,16 @@ type Saved = {
   fundingSignature?:string;
   signed?: Uint8Array;
   signature?: string;
+  // Dead attempts (failed onchain or expired unsent), kept for reconciliation only.
+  retired?: { reviewId: string; signature: string; status: string; at: number }[];
 };
+// Server statuses that mean the signed transaction can never land: "failed" is a
+// recorded onchain error; "review" after signing means its blockhash expired unseen.
+const DEAD = ["failed", "review"];
+const deadMessage = (status: string) =>
+  status === "failed"
+    ? "Failed onchain, so nothing was created. Start a new launch to retry."
+    : "Expired before landing, so nothing was charged. Start a new launch to retry.";
 type Account = { address: string; chains: readonly string[] };
 type Connected = { wallet: Wallet; account: Account };
 const from64 = (v: string) => Uint8Array.from(atob(v), (c) => c.charCodeAt(0)),
@@ -87,8 +96,11 @@ export async function api<T>(url: string, input?: unknown): Promise<T> {
   });
   const data = await r.json();
   if (!r.ok)
-    throw Error(
-      data.error || "Request unavailable. Keep the original receipt and retry.",
+    throw Object.assign(
+      Error(
+        data.error || "Request unavailable. Keep the original receipt and retry.",
+      ),
+      { status: r.status },
     );
   return data;
 }
@@ -283,6 +295,20 @@ export function useSolanaLaunch() {
     const result=await api<Review>('/api/launch?action=prepare',{...saved.details,creator:saved.creator,mint:saved.publicKey,fundingId:saved.fundingId});saved.review=result;await launchDraft('put','mainnet:'+saved.creator,saved);
     if(current.current?.account.address!==saved.creator)return;setReview(result);setStage('review');setMessage('SOL is converted. Approve coin creation and the initial buy. Converted tokens stay in your wallet if you stop.');
   }
+  // Clears a dead signed attempt so the wallet can launch again. The mint key, any
+  // finalized SOL conversion and the form details stay, so a retry never double-creates
+  // a mint or asks for a second conversion.
+  async function retire(saved: Saved, status: string) {
+    if (!saved.signature || !saved.review) return;
+    saved.retired = [
+      ...(saved.retired || []),
+      { reviewId: saved.review.id, signature: saved.signature, status, at: Date.now() },
+    ].slice(-5);
+    delete saved.signed;
+    delete saved.signature;
+    delete saved.review;
+    await launchDraft("put", "mainnet:" + saved.creator, saved);
+  }
   async function follow(saved: Saved) {
     const r = await api<{ status: string; coin?: Coin; funding?:{id:string;signature:string};error?: string }>(
       "/api/launch?action=submit",
@@ -299,9 +325,11 @@ export function useSolanaLaunch() {
       setMessage("Coin creation is finalized and its page is published.");
       return r.coin;
     }
+    if (DEAD.includes(r.status)) await retire(saved, r.status);
     if (current.current?.account.address !== saved.creator) return;
     setStage(r.status);
-    if (r.error) setMessage(r.error);
+    if (DEAD.includes(r.status)) setMessage(deadMessage(r.status));
+    else if (r.error) setMessage(r.error);
     else
       setMessage(
         "Tracking your original transaction. No second payment is requested.",
@@ -382,6 +410,10 @@ export function useSolanaLaunch() {
       const r = await api<{ status: string; coin?: Coin; funding?:{id:string;signature:string};error?: string }>(
         "/api/launch?action=status&id=" + review.id + "&signature=" + signature,
       );
+      if (DEAD.includes(r.status)) {
+        const saved = (await launchDraft("get", "mainnet:" + owner)) as Saved | undefined;
+        if (saved?.signature === signature) await retire(saved, r.status);
+      }
       if (current.current?.account.address !== owner) return;
       setStage(r.status);
       if(r.status==='converted'&&r.funding){const saved=await launchDraft('get','mainnet:'+owner) as Saved|undefined;if(!saved)throw Error('Reconnect the original wallet to recover the conversion.');await converted(saved,r.funding);return;}
@@ -392,8 +424,27 @@ export function useSolanaLaunch() {
         setMessage("Coin creation is finalized.");
         return r.coin;
       }
-      setMessage(r.error || "Still checking the original launch transaction.");
+      setMessage(
+        DEAD.includes(r.status)
+          ? deadMessage(r.status)
+          : r.error || "Still checking the original launch transaction.",
+      );
     } catch (e) {
+      // 404: the server never stored this signed launch, so it never broadcast it.
+      // After the review's deadline the server refuses to store it, so it is dead.
+      if (
+        (e as { status?: number }).status === 404 &&
+        Date.now() > review.expiresAt + 120000
+      ) {
+        const saved = (await launchDraft("get", "mainnet:" + owner)) as Saved | undefined;
+        if (saved?.signature === signature) {
+          await retire(saved, "review");
+          if (current.current?.account.address !== owner) return;
+          setStage("review");
+          setMessage(deadMessage("review"));
+          return;
+        }
+      }
       setMessage((e as Error).message);
     } finally {
       setBusy(false);
@@ -413,14 +464,16 @@ export function useSolanaLaunch() {
     return () => clearInterval(timer);
   }, [signature, review, stage]);
   const edit = () => {
-    if (signature) {
+    if (signature && !DEAD.includes(stage)) {
       setMessage(
         "This launch has a signed receipt. Resume the original transaction.",
       );
       return;
     }
     setReview(null);
+    setSignature("");
     setStage("idle");
+    setMessage("");
   };
   return {
     account: connected?.account.address || "",
@@ -441,6 +494,7 @@ export function useSolanaLaunch() {
     approve,
     check,
     edit,
+    ended: !!signature && DEAD.includes(stage),
     confirmedCoin,
   };
 }

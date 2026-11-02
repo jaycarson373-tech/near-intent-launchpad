@@ -781,7 +781,7 @@ export default function App() {
                         {launch.stage === "failed"
                           ? "Transaction failed"
                           : launch.stage === "review"
-                            ? "Reconciliation required"
+                            ? "Transaction expired"
                             : "Tracking original transaction"}
                       </div>
                       <a
@@ -799,16 +799,23 @@ export default function App() {
                       >
                         Check confirmation <Icon name="refresh" size={15} />
                       </button>
-                      <button
-                        className="button secondary full"
-                        disabled={
-                          launch.busy ||
-                          ["failed", "review"].includes(launch.stage)
-                        }
-                        onClick={() => void launch.approve().then(onConfirmed)}
-                      >
-                        Resume original submission
-                      </button>
+                      {launch.ended ? (
+                        <button
+                          className="button secondary full"
+                          disabled={launch.busy}
+                          onClick={launch.edit}
+                        >
+                          Start a new launch
+                        </button>
+                      ) : (
+                        <button
+                          className="button secondary full"
+                          disabled={launch.busy}
+                          onClick={() => void launch.approve().then(onConfirmed)}
+                        >
+                          Resume original submission
+                        </button>
+                      )}
                     </>
                   ) : (
                     <>
