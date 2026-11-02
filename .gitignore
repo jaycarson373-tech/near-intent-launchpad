@@ -26,3 +26,18 @@ dist-ssr
 .env*
 
 contracts/ft/target/
+
+# Crypto repo baseline (Crypto/shared/templates/gitignore.crypto, merged 2026-11-02)
+!.env.example
+.next/
+*.key
+*.pem
+*keypair*.json
+*.keypair
+id.json
+wallets/
+keypairs/
+private_keys*
+*.dump
+*.sqlite*
+.railway/
