@@ -155,3 +155,12 @@ Built on collaborator main through ab26d67 (PRs #2–#4), with no conflict or so
 ### Combined release verification after collaborator's v0 merge
 
 Merged through 6738ae9, including v0/Jito execution, frozen table verification, original-signature recovery and relay verdict logging. Used collaborator isSigned helper during conflict resolution; both review/retry and partial-bundle protections remain. 107 tests pass, build passes, lint only the pre-existing native-NEAR warning. Both lookup-table environment names are already present in Vercel; no secret values were read. Earlier unsigned v1 simulation evidence is historical, not v0 funded acceptance. Preserve collaborator's accurate split: conversion in setup, buy in fee-lock transaction, one Jito bundle.
+
+
+## Owner correction — full CA and holder beneficiary allocation
+
+Header now shows full supplied CA on a single copyable line; removed pending from display/toast, without implying mint deployment. 390px and 1440px show no overflow; copy toast verified. Primary product copy: INTENT creator fees 100% to INTENT holders; new launch fees 80% own holders / 20% INTENT holders. 35% low-volume timing reserve stays within each beneficiary allocation and appears only as supporting FAQ mechanics.
+
+Versioned routing is implemented in worker accounting, not just copy: additive migration, atomic per-receipt beneficiary routes, preserved raw-unit dust, duplicate settlement protection, signed v2 launch memo/review, stale-client guard and v2 heartbeat readiness. Existing receipts retain v1 terms. V2 authenticated journal envelopes accept old snapshots and reject old workers via their version check; do not roll back to a v1-only worker against migrated records. INTENT's 20% incoming allocations stay owed in treasury until the configured real mint passes complete holder snapshot checks. Own INTENT fee claims still require its verified launch/fee assignment; no public address is treated as issued merely because it is displayed.
+
+115 tests pass; build and lint checks recorded separately. No agent signed/broadcast spending transactions or claimed funded payout acceptance. Existing operator activation and signing credentials are unchanged.

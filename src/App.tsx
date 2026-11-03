@@ -1,3 +1,4 @@
+import {INTENT_MINT} from "../lib/fee-allocation.mjs";
 import {CurveProgress,type CurveState} from "./CurveProgress";
 import {ActivityTape,HolderFlow} from './ActivityTape';
 import {usePulse} from './use-pulse';
@@ -18,7 +19,7 @@ import { Modal } from "./Modal";
 import { NativeReceipt } from "./NativeReceipt";
 import "./App.css";
 const DRAFT_KEY = "intent-pad-solana-editor.v1",
-  INTENT_CA = "near4NKS2qYVPdJhKHPJgRQVzXbmkBgFu39TXfxd6ce",
+  INTENT_CA = INTENT_MINT,
   YEAR = new Date().getFullYear();
 const atoms = (raw: string, dec = 9) => {
   if (!/^\d+$/.test(raw)) return "—";
@@ -334,8 +335,8 @@ export default function App() {
               </a>
             ))}
           </nav>
+          <button className="header-ca" title={INTENT_CA} aria-label="Copy Intent Pad contract address" onClick={()=>void navigator.clipboard.writeText(INTENT_CA).then(()=>setNotice("Contract address copied.")).catch(()=>setNotice(INTENT_CA))}><span>CA</span><code>{INTENT_CA}</code><Icon name="copy" size={13}/></button>
           <div className="header-actions">
-            <button className="header-ca" title={"Planned token address · not yet deployed: " + INTENT_CA} aria-label="Copy Intent Pad planned contract address" onClick={()=>void navigator.clipboard.writeText(INTENT_CA).then(()=>setNotice("Contract address copied. Token deployment is pending.")).catch(()=>setNotice(INTENT_CA))}><span>CA · pending</span><code>{short(INTENT_CA)}</code><Icon name="copy" size={13}/></button>
             <a className="icon-button header-x" href="https://x.com/IntentPad" target="_blank" rel="noreferrer" aria-label="Intent Pad on X"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M18.9 2H22l-6.8 7.8L23.2 22h-6.3L12 14.6 5.5 22H2.3l8.2-9.4L.8 2h6.5l5.9 7.8L18.9 2Zm-1.1 18h1.7L6.4 3.9H4.6L17.8 20Z"/></svg></a>
             <button
               className="button secondary wallet-button"
@@ -681,7 +682,7 @@ export default function App() {
                       </div>
                       <small>
                         Fixed at launch. Pump’s protocol fee is separate.
-                        100% supports this coin’s holders: 65% for regular airdrops, 35% in the treasury for low-volume airdrops.
+                        80% funds this coin’s holder airdrops. 20% funds INTENT holder airdrops.
                       </small>
                     </fieldset>
                     <div className="funding-strip">
@@ -763,6 +764,7 @@ export default function App() {
                         launch.review.name + " ($" + launch.review.symbol + ")",
                       ],
                       ["Paired with", "NEAR on Solana"],
+                      ["Creator-fee rewards",launch.review.feeAllocationVersion===2?(launch.review.mint===INTENT_MINT?"100% to INTENT holders":"80% coin holders · 20% INTENT holders"):"Original holder-reward allocation"],
                       ["Creator fee", launch.review.creatorFeeBps / 100 + "%"],
                       [launch.review.feeTreasury?"Reward treasury":"Original fee recipient", launch.review.feeTreasury||launch.review.creator],
                       ["Initial buy", launch.review.devBuySolRaw!==undefined?atoms(launch.review.devBuySolRaw)+" SOL"+(launch.review.fundingId?" · converted":""):atoms(launch.review.devBuyRaw)+" NEAR · saved review"],
@@ -901,7 +903,7 @@ export default function App() {
                 ],
                 [
                   "Where do creator fees go?",
-                  "100% of confirmed creator fees supports this coin’s holders. Every 15 minutes, 65% funds proportional wNEAR rewards for eligible direct-wallet holders; 35% goes to the treasury reserve for gradual low-volume airdrops. Pump’s protocol fee is separate. Tiny rewards carry forward until they cover the minimum transfer size.",
+                  "100% of INTENT creator fees funds INTENT holder airdrops. For new coins launched on Intent Pad, 80% funds that coin’s holders and 20% funds INTENT holders. Claims are checked every 15 minutes. Pump’s protocol fee is separate. Existing launches keep their recorded allocation. INTENT payouts wait for a verified live mint and complete holder snapshot.",
                 ],
                 [
                   "What happens if confirmation is delayed?",
@@ -912,8 +914,8 @@ export default function App() {
                   "After the launch finalizes and the server verifies the exact approved transaction, token mint and immutable creator-fee assignment. The public directory and coin page use confirmed records. Market charts appear only once a supported trading pair is indexed.",
                 ],
                 [
-                  "When is the reserve released?",
-                  "When verified hourly volume falls below half its recent baseline, up to 5% of the reserve is released per 15-minute cycle, capped at 20% of the day’s opening reserve. Eight consecutive volume observations are required. Unavailable data keeps the reserve held.",
+                  "How are quieter markets supported?",
+                  "A 35% timing reserve is held within each holder allocation; it remains owed to those holders. When verified hourly volume falls below half its recent baseline, up to 5% of the reserve is released per 15-minute cycle, capped at 20% of the day’s opening reserve. Eight consecutive volume observations are required. Unavailable data keeps the reserve held.",
                 ],
                 [
                   "Who receives the initial buy?",
@@ -1039,10 +1041,10 @@ export default function App() {
     </div>
   );
 }
-function HolderRewards({mint}:{mint:string}){
- const [data,setData]=useState<{claimedRaw:string;distributedRaw:string;reserveRaw:string;outstandingRaw:string;updatedAt:number;lastSnapshot:{slot:number;root:string}|null;payouts:{signature:string;owner:string;raw:string;time:number}[]}|null>(null),[error,setError]=useState(false);
+function HolderRewards({mint,allocationVersion=1}:{mint:string;allocationVersion?:number}){
+ const [data,setData]=useState<{claimedRaw:string;intentRoutedRaw?:string;distributedRaw:string;reserveRaw:string;outstandingRaw:string;updatedAt:number;lastSnapshot:{slot:number;root:string}|null;payouts:{signature:string;owner:string;raw:string;time:number}[]}|null>(null),[error,setError]=useState(false);
  useEffect(()=>{let active=true;const refresh=()=>api<{rewards:typeof data}>("/api/rewards?mint="+mint).then(r=>{if(active){setData(r.rewards);setError(false)}}).catch(()=>{if(active)setError(true)});void refresh();const timer=setInterval(()=>{if(document.visibilityState==='visible')void refresh()},30000);return ()=>{active=false;clearInterval(timer)}},[mint]);
- return <section className="holder-rewards panel"><span className="eyebrow">THIS COIN’S HOLDER REWARDS</span><h2>Creator fees, back to holders.</h2><p className="rewards-note">100% of creator fees supports holders: 65% funds regular wNEAR airdrops and 35% stays in the treasury for low-volume airdrops. Claims are checked every 15 minutes.</p>{data?<><div className="reward-metrics">{[["Fees claimed",data.claimedRaw],["Airdropped",data.distributedRaw],["Holder treasury reserve",data.reserveRaw]].map(([label,value])=><div key={label}><span>{label}</span><strong>{atoms(value)} wNEAR</strong></div>)}</div><p className="rewards-note">{data.lastSnapshot?<>Latest observed finalized snapshot · slot {data.lastSnapshot.slot.toLocaleString()} · <span title={data.lastSnapshot.root}>{data.lastSnapshot.root.slice(0,12)}…</span></>:"Awaiting the first completed holder snapshot."} {atoms(data.outstandingRaw)} wNEAR in accrued holder credits. Updated {new Date(data.updatedAt*1000).toLocaleTimeString()}.</p>{data.payouts.length?data.payouts.slice(0,6).map((r,i)=><div className="reward-receipt" key={r.signature+':'+i}><span>{short(r.owner)} · {atoms(r.raw)} wNEAR</span><a href={'https://solscan.io/tx/'+r.signature} target="_blank" rel="noreferrer">Confirmed transfer <Icon name="arrow" size={12}/></a></div>):<p className="rewards-note">No confirmed airdrops yet. Transfers appear here after onchain confirmation.</p>}</>:<p className="rewards-note">{error?"Reward records are temporarily unavailable. Refresh to check again.":"The first verified claim, snapshot and airdrop records will appear here. No distribution has been recorded yet."}</p>}</section>;
+ return <section className="holder-rewards panel"><span className="eyebrow">THIS COIN’S HOLDER REWARDS</span><h2>Creator fees, back to holders.</h2><p className="rewards-note">{mint===INTENT_MINT?"100% of INTENT creator fees funds INTENT holder airdrops.":allocationVersion===2?"80% of creator fees funds this coin’s holder airdrops. 20% funds INTENT holder airdrops.":"This earlier launch keeps its original holder-reward allocation."} Claims are checked every 15 minutes.</p>{data?<><div className="reward-metrics">{[["Fees claimed",data.claimedRaw],["Airdropped",data.distributedRaw],["Holder treasury reserve",data.reserveRaw],...(allocationVersion===2&&mint!==INTENT_MINT?[["Allocated to INTENT holders",data.intentRoutedRaw||"0"]]:[])].map(([label,value])=><div key={label}><span>{label}</span><strong>{atoms(value)} wNEAR</strong></div>)}</div><p className="rewards-note">{data.lastSnapshot?<>Latest observed finalized snapshot · slot {data.lastSnapshot.slot.toLocaleString()} · <span title={data.lastSnapshot.root}>{data.lastSnapshot.root.slice(0,12)}…</span></>:"Awaiting the first completed holder snapshot."} {atoms(data.outstandingRaw)} wNEAR in accrued holder credits. Updated {new Date(data.updatedAt*1000).toLocaleTimeString()}.</p>{data.payouts.length?data.payouts.slice(0,6).map((r,i)=><div className="reward-receipt" key={r.signature+':'+i}><span>{short(r.owner)} · {atoms(r.raw)} wNEAR</span><a href={'https://solscan.io/tx/'+r.signature} target="_blank" rel="noreferrer">Confirmed transfer <Icon name="arrow" size={12}/></a></div>):<p className="rewards-note">No confirmed airdrops yet. Transfers appear here after onchain confirmation.</p>}</>:<p className="rewards-note">{error?"Reward records are temporarily unavailable. Refresh to check again.":"The first verified claim, snapshot and airdrop records will appear here. No distribution has been recorded yet."}</p>}</section>;
 }
 function CoinPage({
   mint,
@@ -1300,7 +1302,7 @@ function CoinPage({
           </section>
         </aside>
       </div>
-      {c.rewardPolicyHash && <HolderRewards mint={c.mint}/>}
+      {c.rewardPolicyHash && <HolderRewards mint={c.mint} allocationVersion={c.feeAllocationVersion}/>}
       <div
         className="tabs detail-tabs"
         role="tablist"

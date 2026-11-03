@@ -1,3 +1,4 @@
+import {FEE_ALLOCATION_VERSION} from "../lib/fee-allocation.mjs";
 import { createHmac } from "node:crypto";
 import { ed25519 } from "@noble/curves/ed25519";
 import bs58 from "bs58";
@@ -17,6 +18,7 @@ export async function heartbeat(key, ready, reason) {
   const state = {
       treasury: key.publicKey.toBase58(),
       policyHash: POLICY_HASH,
+      feeAllocationVersion: FEE_ALLOCATION_VERSION,
       network: "mainnet",
       checkedAt: Date.now(),
       ready,

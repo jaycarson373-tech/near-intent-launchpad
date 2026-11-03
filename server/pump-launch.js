@@ -1,3 +1,4 @@
+import {FEE_ALLOCATION_VERSION} from "../lib/fee-allocation.mjs";
 import {solConversion,walletTokenState,verifyConversionEffects} from '../lib/sol-dev-buy.mjs';
 import {compactTokenSetup,assertLaunchTraceBudget,assertTraceCount,innerInstructionCount,blockedLaunchResult} from '../lib/launch-budget.mjs';
 import {launchParts,launchMemo,buildBundle,compileBundleTx,assertV0Wires,logTraceCount,simulateLaunchBundle,messageMatchesReceipt,bundleProgress,ATA_CREATE_TRACE,BUY_TRACE} from '../lib/launch-bundle.mjs';
@@ -145,7 +146,7 @@ async function draft(id) {
 }
 export async function prepare(raw, deps = {}) {
   // Older pages sign a single transaction or a v1 bundle (which never lands through Jito).
-  if (raw?.flow !== "v0-bundle") fail("Reload the page to use the updated launch flow.", 409);
+  if (raw?.flow !== "v0-bundle" || raw?.feeAllocationVersion !== FEE_ALLOCATION_VERSION) fail("Reload the page to use the updated launch flow.", 409);
   if (!configured())
     fail("Launch storage needs configuration before a wallet approval.", 503);
   const rewards=await rewardReadiness();if(!rewards.ready)fail("Holder rewards need their treasury and worker configured before a launch can lock its fee assignment.",503);
@@ -196,7 +197,7 @@ export async function prepare(raw, deps = {}) {
     devBuyRaw: input.devBuyRaw.toString(),
     devBuySolRaw: input.devBuySolRaw.toString(),
     quoteMint: NEAR,
-    feeTreasury:rewards.treasury,rewardPolicyHash:POLICY_HASH,
+    feeTreasury:rewards.treasury,rewardPolicyHash:POLICY_HASH,feeAllocationVersion:FEE_ALLOCATION_VERSION,
     phase:"launch",bundle:true,atomicSolBuy:!!route,fundingId:funding?.id||null,fundingSignature:funding?.signature||null,
     createdAt: new Date().toISOString(),
     expiresAt: Date.now() + 90000,
@@ -438,7 +439,7 @@ export async function prepare(raw, deps = {}) {
     name: record.name,
     symbol: record.symbol,
     quoteMint: NEAR,
-    creator: record.creator,feeTreasury:record.feeTreasury,rewardPolicyHash:record.rewardPolicyHash,
+    creator: record.creator,feeTreasury:record.feeTreasury,rewardPolicyHash:record.rewardPolicyHash,feeAllocationVersion:record.feeAllocationVersion??1,
   };
 }
 export function verifyConversionReceipt(tx,d){

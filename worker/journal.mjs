@@ -20,6 +20,10 @@ export class RewardJournal {
     this.db.exec(
       `PRAGMA foreign_keys=ON;CREATE TABLE IF NOT EXISTS coins(mint TEXT PRIMARY KEY,treasury TEXT NOT NULL,available TEXT NOT NULL DEFAULT '0',reserve TEXT NOT NULL DEFAULT '0',day TEXT NOT NULL DEFAULT '',opening TEXT NOT NULL DEFAULT '0',released TEXT NOT NULL DEFAULT '0',last_epoch INTEGER NOT NULL DEFAULT -1,last_claim INTEGER NOT NULL DEFAULT -1,last_payout INTEGER NOT NULL DEFAULT -1);CREATE TABLE IF NOT EXISTS jobs(id TEXT PRIMARY KEY,mint TEXT NOT NULL,kind TEXT NOT NULL,signature TEXT UNIQUE NOT NULL,wire TEXT NOT NULL,last_valid INTEGER NOT NULL,status TEXT NOT NULL DEFAULT 'pending',plan TEXT NOT NULL,created INTEGER NOT NULL);CREATE TABLE IF NOT EXISTS claims(signature TEXT PRIMARY KEY,mint TEXT NOT NULL,raw TEXT NOT NULL,holders TEXT NOT NULL,reserve TEXT NOT NULL,time INTEGER NOT NULL);CREATE TABLE IF NOT EXISTS credits(mint TEXT NOT NULL,owner TEXT NOT NULL,raw TEXT NOT NULL,PRIMARY KEY(mint,owner));CREATE TABLE IF NOT EXISTS epochs(mint TEXT NOT NULL,epoch INTEGER NOT NULL,slot INTEGER NOT NULL,root TEXT NOT NULL,budget TEXT NOT NULL,released TEXT NOT NULL,allocated TEXT NOT NULL,proof TEXT NOT NULL,PRIMARY KEY(mint,epoch));CREATE TABLE IF NOT EXISTS payouts(signature TEXT NOT NULL,mint TEXT NOT NULL,owner TEXT NOT NULL,raw TEXT NOT NULL,time INTEGER NOT NULL,PRIMARY KEY(signature,owner));CREATE TABLE IF NOT EXISTS volumes(mint TEXT NOT NULL,epoch INTEGER NOT NULL,cents TEXT,source TEXT,PRIMARY KEY(mint,epoch));`,
     );
+    // Additive migration: old receipts, jobs and signed outbox bytes are untouched.
+    if (!this.db.prepare("PRAGMA table_info(coins)").all().some(c=>c.name==='allocation_version'))
+      this.db.exec("ALTER TABLE coins ADD COLUMN allocation_version INTEGER NOT NULL DEFAULT 1");
+    this.db.exec("CREATE TABLE IF NOT EXISTS fee_routes(signature TEXT NOT NULL,source_mint TEXT NOT NULL,beneficiary_mint TEXT NOT NULL,raw TEXT NOT NULL,available TEXT NOT NULL,reserve TEXT NOT NULL,PRIMARY KEY(signature,beneficiary_mint))");
   }
   atomic(fn) {
     this.db.exec("BEGIN IMMEDIATE");
@@ -103,7 +107,7 @@ export class CheckpointStore {
 export function envelope(database, context, revision) {
   const compressed = gzipSync(database),
     body = {
-      version: 1,
+      version: 2,
       network: "mainnet",
       treasury: context.treasury,
       policyHash: context.policyHash,
@@ -129,7 +133,7 @@ export function decodeEnvelope(bytes, context) {
   if (
     !/^[a-f0-9]{64}$/.test(authentication || "") ||
     !timingSafeEqual(Buffer.from(expected), Buffer.from(authentication)) ||
-    body.version !== 1 ||
+    ![1, 2].includes(body.version) ||
     body.network !== "mainnet" ||
     body.treasury !== context.treasury ||
     body.policyHash !== context.policyHash ||

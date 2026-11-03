@@ -1,3 +1,4 @@
+import {INTENT_MINT, FEE_ALLOCATION_VERSION, feeBeneficiaries} from "../lib/fee-allocation.mjs";
 import { randomUUID } from "node:crypto";
 import { put } from "@vercel/blob";
 import {
@@ -27,9 +28,11 @@ export function registerCoin(j, coin, treasury) {
     !coin.signature
   )
     return false;
+  if (![1,FEE_ALLOCATION_VERSION].includes(coin.feeAllocationVersion ?? 1)) throw Error("Unsupported reward allocation version.");
   j.db
-    .prepare("INSERT OR IGNORE INTO coins(mint,treasury) VALUES(?,?)")
-    .run(coin.mint, treasury);
+    .prepare("INSERT OR IGNORE INTO coins(mint,treasury,allocation_version) VALUES(?,?,?)")
+    .run(coin.mint, treasury, coin.feeAllocationVersion ?? 1);
+  if (![1,FEE_ALLOCATION_VERSION].includes(coin.feeAllocationVersion ?? 1) || j.coin(coin.mint).allocation_version !== (coin.feeAllocationVersion ?? 1)) throw Error("Immutable reward allocation mismatch.");
   return true;
 }
 export function reserveJob(j, mint, kind, prepared, now) {
@@ -76,29 +79,18 @@ export function settleJob(j, job, outcome, now) {
     if (outcome.status !== "confirmed")
       throw Error("Cannot settle an unconfirmed job.");
     if (job.kind === "claim") {
-      const raw = BigInt(outcome.result.raw),
-        split = splitClaim(raw),
-        coin = j.coin(job.mint);
+      const raw = BigInt(outcome.result.raw), coin = j.coin(job.mint);
       if (raw > 0n) {
-        j.db
-          .prepare(
-            "INSERT INTO claims(signature,mint,raw,holders,reserve,time) VALUES(?,?,?,?,?,?)",
-          )
-          .run(
-            job.signature,
-            job.mint,
-            String(raw),
-            split.holdersRaw,
-            split.reserveRaw,
-            now,
-          );
-        j.db
-          .prepare("UPDATE coins SET available=?,reserve=? WHERE mint=?")
-          .run(
-            String(BigInt(coin.available) + BigInt(split.holdersRaw)),
-            String(BigInt(coin.reserve) + BigInt(split.reserveRaw)),
-            job.mint,
-          );
+        let available=0n, reserve=0n;
+        for (const route of feeBeneficiaries(job.mint,raw,coin.allocation_version)) {
+          const split=splitClaim(route.raw);
+          j.db.prepare("INSERT OR IGNORE INTO coins(mint,treasury,allocation_version) VALUES(?,?,?)").run(route.mint,coin.treasury,route.mint===INTENT_MINT?FEE_ALLOCATION_VERSION:coin.allocation_version);
+          const recipient=j.coin(route.mint);
+          j.db.prepare("INSERT INTO fee_routes(signature,source_mint,beneficiary_mint,raw,available,reserve) VALUES(?,?,?,?,?,?)").run(job.signature,job.mint,route.mint,route.raw,split.holdersRaw,split.reserveRaw);
+          j.db.prepare("UPDATE coins SET available=?,reserve=? WHERE mint=?").run(String(BigInt(recipient.available)+BigInt(split.holdersRaw)),String(BigInt(recipient.reserve)+BigInt(split.reserveRaw)),route.mint);
+          available+=BigInt(split.holdersRaw);reserve+=BigInt(split.reserveRaw);
+        }
+        j.db.prepare("INSERT INTO claims(signature,mint,raw,holders,reserve,time) VALUES(?,?,?,?,?,?)").run(job.signature,job.mint,String(raw),String(available),String(reserve),now);
       }
     } else
       for (const r of outcome.result.rows)
@@ -235,10 +227,13 @@ export function publicProjection(j, mint, now) {
     mint,
     treasury: c.treasury,
     policy: REWARD_POLICY,
+    feeAllocationVersion: c.allocation_version,
+    beneficiaryRoutes: j.db.prepare("SELECT signature,source_mint,beneficiary_mint,raw,available,reserve FROM fee_routes WHERE source_mint=? OR beneficiary_mint=? ORDER BY rowid DESC LIMIT 50").all(mint,mint),
     policyHash: POLICY_HASH,
     updatedAt: now,
     assetMint: NEAR,
     claimedRaw: String(integerSum(allClaims)),
+    intentRoutedRaw: String(integerSum(j.db.prepare("SELECT raw FROM fee_routes WHERE source_mint=? AND beneficiary_mint=? AND source_mint!=beneficiary_mint").all(mint,INTENT_MINT))),
     distributedRaw: String(integerSum(allPayouts)),
     reserveRaw: c.reserve,
     availableRaw: c.available,
@@ -318,10 +313,13 @@ export async function tick(
   const coins = (await coinReader()).filter((c) =>
     registerCoin(j, c, treasury),
   );
+  // The platform can receive community allocations before its own launch receipt.
+  // Its payouts still require a fully verified live-mint holder snapshot.
+  if(j.coin(INTENT_MINT) && !coins.some(c=>c.mint===INTENT_MINT))coins.push({mint:INTENT_MINT,beneficiaryOnly:true});
   await session.commit();
   for (const coin of coins) {
     let c = j.coin(coin.mint);
-    if (c.last_claim < epoch) {
+    if (!coin.beneficiaryOnly && c.last_claim < epoch) {
       const prepared = await claimBuilder(rpc, key, coin);
       j.db
         .prepare("UPDATE coins SET last_claim=? WHERE mint=?")
@@ -335,8 +333,13 @@ export async function tick(
     }
     c = j.coin(coin.mint);
     if (c.last_epoch < epoch) {
-      const snapshot = await snapshotReader(rpc, coin.mint, treasury),
-        volume = await volumeReader(coin.mint);
+      let snapshot;
+      try {snapshot=await snapshotReader(rpc,coin.mint,treasury);} catch(error) {
+        if(!coin.beneficiaryOnly)throw error;
+        // Unissued/unverifiable INTENT mint: retain every obligation, never redirect it.
+        continue;
+      }
+      const volume = await volumeReader(coin.mint);
       allocateEpoch(j, coin.mint, epoch, snapshot, volume);
       await session.commit();
     }

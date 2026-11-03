@@ -1,3 +1,4 @@
+import {FEE_ALLOCATION_VERSION} from "../lib/fee-allocation.mjs";
 import { useEffect, useEffectEvent, useRef, useState } from "react";
 import { getWallets } from "@wallet-standard/app";
 import type { Wallet } from "@wallet-standard/base";
@@ -11,7 +12,7 @@ import {
 } from "../lib/launch-signatures.mjs";
 export type Coin = {
   settlementSignatures?:string[];
-  feeTreasury:string;rewardPolicyHash:string|null;
+  feeTreasury:string;rewardPolicyHash:string|null;feeAllocationVersion?:number;
   mint: string;
   name: string;
   symbol: string;
@@ -49,7 +50,7 @@ export const EMPTY_COIN: CoinDraft = {
   devBuySol: "0",
 };
 export type Review = {
-  feeTreasury:string;rewardPolicyHash:string;
+  feeTreasury:string;rewardPolicyHash:string;feeAllocationVersion?:number;
   id: string;
   phase?:"conversion"|"launch";
   atomicSolBuy?:boolean;
@@ -327,6 +328,7 @@ export function useSolanaLaunch() {
       const result = await api<Review>("/api/launch?action=prepare", {
         ...details,
         flow: "v0-bundle",
+        feeAllocationVersion: FEE_ALLOCATION_VERSION,
         creator,
         mint: saved.publicKey,
         fundingId:saved.fundingId,

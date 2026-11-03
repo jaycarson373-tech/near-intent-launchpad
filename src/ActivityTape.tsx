@@ -122,10 +122,10 @@ export function ActivityTape({
         First launches & confirmed airdrops appear here
       </span>
       <span className="tape-item">
-        <strong>100%</strong> for holders
+        <strong>100%</strong> INTENT fees to holders
       </span>
       <span className="tape-item">
-        <strong>35%</strong> low-volume reserve
+        <strong>80 / 20</strong> launch holder rewards
       </span>
       <span className="tape-item">
         <strong>15 min</strong> reward cycles
@@ -236,25 +236,25 @@ export function HolderFlow({ pulse }: { pulse: Pulse | null }) {
     <div className="holder-flow">
       <div className="holder-flow-heading">
         <span>
-          <span className="flow-glyph" /> 100% OF CREATOR FEES → HOLDERS
+          <span className="flow-glyph" /> CREATOR FEES → HOLDER AIRDROPS
         </span>
         <span>15 MIN CYCLE</span>
       </div>
       <div className="holder-flow-numbers">
         <div>
           <strong>
-            65<span>%</span>
+            100<span>%</span>
           </strong>
-          <span>Regular airdrops</span>
+          <span>INTENT fees → INTENT holders</span>
         </div>
         <div>
           <strong>
-            35<span>%</span>
+            80<span>/20</span>
           </strong>
-          <span>Holder treasury</span>
+          <span>New coin holders / INTENT holders</span>
         </div>
       </div>
-      <div className="holder-flow-meter">
+      <div className="holder-flow-meter" aria-label="New coin fees: 80% to its holders and 20% to INTENT holders">
         <span />
         <span />
       </div>
