@@ -4,7 +4,7 @@ import { getWallets } from "@wallet-standard/app";
 import type { Wallet } from "@wallet-standard/base";
 import { getTransactionDecoder, getTransactionEncoder } from "@solana/kit";
 import bs58 from "bs58";
-import { phaseReceipt, stagedContinuation, finishableBuy } from "../lib/staged-review.mjs";
+import { phaseReceipt, stagedContinuation, finishableBuy, canonicalSignedReceipt } from "../lib/staged-review.mjs";
 import { unsignedReviewDetails } from "../lib/launch-review.mjs";
 import { launchDraft } from "../lib/launch-draft-store.mjs";
 import {
@@ -110,7 +110,7 @@ const deadMessage = (status: string, error?: string) =>
     : status === "failed"
       ? "Failed onchain, so nothing was created. Start a new launch to retry."
       : "Expired before landing, so nothing was charged. Start a new launch to retry.";
-type LaunchStatus = { launchId?:string;phase?:string;signature?:string; status: string; coin?: Coin; funding?: { id: string; signature: string }; error?: string; created?: boolean };
+type LaunchStatus = { id?:string;wire?:string;launchId?:string;phase?:string;signature?:string; status: string; coin?: Coin; funding?: { id: string; signature: string }; error?: string; created?: boolean };
 const isSigned = (saved?: Saved) => !!(saved?.signed || saved?.bundleSigned?.length);
 const isV0Bundle = (r?: Review) =>
   r?.layout === "v0-alt" && Array.isArray(r.roles) && Array.isArray(r.wires) && r.roles.length === r.wires.length && r.roles.filter((x) => x === "create").length === 1;
@@ -418,6 +418,14 @@ export function useSolanaLaunch() {
     setMessage("The previous phase is finalized. Review this phase before approving it separately.");
   }
   async function stagedResult(saved: Saved, result: LaunchStatus) {
+    if (result.status === "canonical-signed") {
+      const next = canonicalSignedReceipt(saved, result);
+      await launchDraft("put", "mainnet:" + saved.creator, next);
+      if (current.current?.account.address !== saved.creator) return true;
+      setSignature(next.signature!); setStage("submitted");
+      setMessage("Recovered the original server-saved signed phase. Confirmation and resume use only those exact bytes; no new wallet approval is requested.");
+      return true;
+    }
     if (result.status === "phase-confirmed") {
       const next = phaseReceipt(saved, result);
       await launchDraft("put", "mainnet:" + saved.creator, next);
