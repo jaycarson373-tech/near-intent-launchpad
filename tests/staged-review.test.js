@@ -23,3 +23,11 @@ test('unsigned initial review refresh stays on its existing root and exact prede
  const original=saved();delete original.launchId;delete original.signed;delete original.signature;
  assert.equal(stagedContinuation(original,'owner').launchId,'root');
 });
+test('canonical phase completion from a later attempt releases the original expired attempt on the same root',()=>{
+ const next=phaseReceipt(saved(),{status:'phase-confirmed',launchId:'root',phase:'create',signature:'replacement-signature',coin:{mint:'mint'}});
+ assert.equal(next.signature,undefined);assert.deepEqual(next.completedPhases,['setup','create']);
+});
+test('canonical completion rejects missing signature and foreign coin receipts',()=>{
+ assert.throws(()=>phaseReceipt(saved(),{status:'phase-confirmed',launchId:'root',phase:'create',signature:''}));
+ assert.throws(()=>phaseReceipt(saved(),{status:'phase-confirmed',launchId:'root',phase:'create',signature:'signature',coin:{mint:'other'}}));
+});

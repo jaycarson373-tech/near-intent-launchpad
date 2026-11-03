@@ -80,6 +80,7 @@ export type Review = {
   symbol: string;
   creator: string;
 };
+type Prepared = Review | {status:"confirmed";coin:Coin};
 type Saved = {
   launchId?:string;
   phaseRetry?:boolean;
@@ -394,7 +395,17 @@ export function useSolanaLaunch() {
     const owner = current.current?.account.address;
     if (!owner) throw Error("Reconnect the original wallet to resume this phase.");
     const input = stagedContinuation(saved, owner);
-    const result = await api<Review>("/api/launch?action=prepare", input);
+    const result = await api<Prepared>("/api/launch?action=prepare", input);
+    if ("status" in result) {
+      if (result.status !== "confirmed" || !result.coin || result.coin.mint !== saved.publicKey)
+        throw Error("The completed launch receipt does not match this mint. Keep the saved recovery and retry.");
+      await launchDraft("delete", "mainnet:" + owner);
+      if (current.current?.account.address !== owner) return;
+      setReview(null); setSignature(result.coin.signature); setStage("confirmed");
+      setConfirmedCoin(result.coin); setCreatedCoin(result.coin);
+      setMessage("This launch is already finalized and its coin page is published.");
+      return;
+    }
     if (result.flow !== "staged-v1" || result.launchId !== input.launchId || result.mint !== saved.publicKey || result.creator !== owner)
       throw Error("The refreshed review does not match the saved launch. Keep the original receipt and retry.");
     saved.review = result;
