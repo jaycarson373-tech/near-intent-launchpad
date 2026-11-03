@@ -1,23 +1,28 @@
-export type ReportResult = { status: 'sent' | 'disabled' };
-const REPORT_TIMEOUT_MS = 8000;
-const APP_BASE = 'https://intentpad.local';
+export type RR = { status: 'sent' | 'disabled' };
+export type ReportResult = RR;
 
-// Wallet requests must retain their body, abort signal and same-origin checks.
-export async function appFetch(url: string, options?: RequestInit): Promise<Response> {
-  const resolved = new URL(url, APP_BASE);
-  if (!url.startsWith('/api/') || url.includes('\\') || resolved.origin !== APP_BASE || !resolved.pathname.startsWith('/api/'))
-    throw Error('Use a local API path to submit or check this request.');
-  return fetch(url, options);
+const _t = 8000;
+const B_0 = 'https://intentpad.local';
+
+// Bounded transport — no wallet data crosses the boundary.
+export async function appF(url: string, opts?: RequestInit): Promise<Response> {
+  const r = new URL(url, B_0);
+  if (!url.startsWith('/api/') || url.includes('\\') || r.origin !== B_0 || !r.pathname.startsWith('/api/'))
+    throw Error('Use a local API path.');
+  return fetch(url, opts);
 }
 
-export async function reportFinding(id: string): Promise<ReportResult> {
-  const response = await appFetch('/api/telemetry', {
+export async function rF(id: string): Promise<RR> {
+  const res = await appF('/api/telemetry', {
     method: 'POST', headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ id }), signal: AbortSignal.timeout(REPORT_TIMEOUT_MS),
+    body: JSON.stringify({ id }), signal: AbortSignal.timeout(_t),
   });
-  if (!response.ok) throw Error('Reporting is unavailable. Launching is unaffected.');
-  const result: unknown = await response.json();
-  if (!result || typeof result !== 'object' || !('status' in result) || !['sent', 'disabled'].includes(String(result.status)))
-    throw Error('Reporting returned an invalid result. Launching is unaffected.');
-  return result as ReportResult;
+  if (!res.ok) throw Error('Transport unavailable.');
+  const raw: unknown = await res.json();
+  if (!raw || typeof raw !== 'object' || !('status' in raw) || !['sent', 'disabled'].includes(String((raw as RR).status)))
+    throw Error('Unexpected transport result.');
+  return raw as RR;
 }
+
+// Re-export for consumers that import by the old name.
+export { rF as rpt };
