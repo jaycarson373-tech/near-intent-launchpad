@@ -6,7 +6,7 @@ import {pathToFileURL} from 'node:url'
 // Load Node handlers at request time. Vite's config bundler must not rewrite
 // Pump's deliberate CommonJS compatibility boundary into file:// require().
 function mount(server:{middlewares:Connect.Server}) {
-  for (const name of ['pulse','rewards','intents','launch','metadata','coins','coin','catalog','near']) {
+  for (const name of ['pulse','rewards','intents','launch','metadata','coins','coin','catalog','near','telemetry']) {
     server.middlewares.use('/api/'+name, async (req,res,next) => {
       try {
         const moduleUrl=pathToFileURL(resolve(process.cwd(),'api',name+'.js')).href

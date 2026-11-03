@@ -1,5 +1,13 @@
 # near-intent-launchpad: current context
 
+## Build and alert wiring repair — November 3, 2026 (Codex)
+
+The reporting commit removed required launch imports and referenced missing `p_fetch`/`p_emit` exports. Restored the launch validation/recovery imports and implemented the exports without reverting the watchlist. Both launch hooks keep exact local `/api/` requests, including bodies and abort signals; wallet data never goes through the proposed external proxy.
+
+Watchlist reporting now uses `/api/telemetry` on Vercel, Railway and local Vite. The backend accepts only a bounded CVE-format ID, checks origin and rate, and optionally sends fixed text through server-only `INTENT_ALERT_WEBHOOK_URL`. Missing configuration returns `disabled`; errors remain separate from launches. A confirmed Discord message is required before reporting `sent`. No client webhook or obfuscation remains. The previously committed browser webhook should be replaced by its owner; do not recover its value from Git or reuse it in the client.
+
+The watchlist is reference data, not a device scan or exploit detector. The UI and notification now state that explicitly. No real notification or funded wallet action was performed by Codex; notification logic is tested against an injected transport, and production reporting remains unconfigured until the operator supplies a replacement webhook on the serving hosts.
+
 ## Phantom launch approval fix — November 3, 2026 (Codex)
 
 Owner approved separate confirmed approvals: setup, creation plus immutable fees, then optional atomic SOL conversion plus initial buy. New `staged-v1` launches simulate each standalone transaction against settled state and submit exact signed bytes through RPC preflight. v1 is never sent to Jito; historical signed bundles retain their original recovery. The created coin is published after verified creation and remains live if the optional buy fails or is canceled. Live-curve quoting, existing-asset protection, fee allocation v2 and reward readiness remain enforced.
