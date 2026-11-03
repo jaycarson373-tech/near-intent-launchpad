@@ -6,7 +6,7 @@ The reporting commit removed required launch imports and referenced missing `p_f
 
 Watchlist reporting now uses `/api/telemetry` on Vercel, Railway and local Vite. The backend accepts only a bounded CVE-format ID, checks origin and rate, and optionally sends fixed text through server-only `INTENT_ALERT_WEBHOOK_URL`. Missing configuration returns `disabled`; errors remain separate from launches. A confirmed Discord message is required before reporting `sent`. No client webhook or obfuscation remains. The previously committed browser webhook should be replaced by its owner; do not recover its value from Git or reuse it in the client.
 
-The watchlist is reference data, not a device scan or exploit detector. The UI and notification now state that explicitly. No real notification or funded wallet action was performed by Codex; notification logic is tested against an injected transport, and production reporting remains unconfigured until the operator supplies a replacement webhook on the serving hosts.
+The watchlist is reference data, not a device scan or exploit detector. The UI and notification now state that explicitly. No real notification or funded wallet action was performed by Codex; notification logic is tested against an injected transport. The owner subsequently supplied and explicitly authorized the webhook value for `INTENT_ALERT_WEBHOOK_URL`. It is now configured in Vercel production (sensitive) and Railway production; no credential value is recorded here. The existing release was redeployed successfully: Vercel `dpl_6SLcCtseGCUN8KXQUfg9ebDLMiwe`, Railway `c20ad3a2-1313-430c-9382-e4738b5c214d`. No test notification was sent.
 
 ## Phantom launch approval fix — November 3, 2026 (Codex)
 
