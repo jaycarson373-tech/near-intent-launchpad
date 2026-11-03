@@ -4,3 +4,5 @@ export function stagedContinuation(saved:Recovery,owner:string):{flow:'staged-v1
 export function finishableBuy(saved:Recovery):boolean;
 
 export function canonicalSignedReceipt<T extends Recovery>(saved:T,receipt:{status:string;id?:string;launchId?:string;phase?:string;signature?:string;wire?:string}):T;
+
+export function validateCanonicalRequired(saved:Recovery,receipt:{status:string;id?:string;launchId?:string;phase?:string}):void;

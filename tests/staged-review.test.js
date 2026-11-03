@@ -65,3 +65,13 @@ test('canonical signed adoption rejects foreign identity, forged signatures, mal
  const invalid=Buffer.from(receipt.wire,'base64');invalid[10]^=1;
  assert.throws(()=>canonicalSignedReceipt(state,{...receipt,wire:invalid.toString('base64')}));assert.equal(state.signature,original);
 });
+
+import {validateCanonicalRequired} from '../lib/staged-review.mjs';
+test('canonical-required accepts only a matching phase hint with original local signed recovery',()=>{
+ const {state}=canonicalFixture(),hint={status:'canonical-required',id:'attempt',launchId:'root',phase:'setup'};
+ assert.doesNotThrow(()=>validateCanonicalRequired(state,hint));
+ for(const patch of [{id:'other'},{launchId:'other'},{phase:'buy'},{status:'canonical-signed'}]) assert.throws(()=>validateCanonicalRequired(state,{...hint,...patch}));
+ assert.throws(()=>validateCanonicalRequired({...state,signed:undefined},hint));
+ assert.throws(()=>validateCanonicalRequired({...state,signature:undefined},hint));
+ assert.equal(state.signature,canonicalFixture().state.signature);
+});
