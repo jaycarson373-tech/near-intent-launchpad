@@ -17,9 +17,12 @@ function launch(extra = {}) {
     saved: { id, bundle: true, signature: "sigB", signatures: ["sigA", "sigB", "sigC"], roles: ["setup", "create", "fees"], wires: ["QQ==", "Qg==", "Qw=="], createdAt: 1 },
   };
 }
+const verified = [];
 function harness({ rows = [null, null, null], height = 50, context = 10, records = {}, send, rpc = {}, simulate } = {}) {
   const m = new Map(Object.entries(records)), sent = [], removed = [];
   const io = {
+    checkNetwork: async () => {},
+    verifySimulation: (d, sim) => (verified.push(sim), BigInt(sim.before[0].lamports - sim.after[0].lamports)),
     read: async (k) => m.get(k) ?? null,
     create: async (k, v) => {
       if (m.has(k)) throw Error("exists");
@@ -36,7 +39,7 @@ function harness({ rows = [null, null, null], height = 50, context = 10, records
     removePointer: async (k) => removed.push(k),
     sendJitoBundle: send || (async (wires) => (sent.push(wires), "ab".repeat(32))),
     simulateLaunchBundle: simulate || (async () => assert.fail("no bundle simulation expected")),
-    rpc: { getSlot: async () => 10, getBlockHeight: async () => height, getSignatureStatuses: async () => ({ context: { slot: context }, value: rows }), ...rpc },
+    rpc: { getGenesisHash: async () => "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d", getSlot: async () => 10, getBlockHeight: async () => height, getSignatureStatuses: async () => ({ context: { slot: context }, value: rows }), ...rpc },
   };
   return { io, m, sent, removed };
 }
@@ -146,6 +149,7 @@ test("first submission simulates the exact signed bundle before any send", async
   assert.equal(r.status, "submitted");
   assert.deepEqual(calls[0].w, wires, "the exact signed wires are simulated");
   assert.equal(calls[0].options.signed, true);
+  assert.ok(verified.length > 0, "fee assignment, buy and debit are re-verified on the signed bundle");
   assert.deepEqual(ok.sent, [wires]);
   assert.ok(ok.m.has("broadcasts/" + d.id + ".json"));
 });

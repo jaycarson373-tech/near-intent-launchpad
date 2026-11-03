@@ -3,16 +3,20 @@ import assert from "node:assert/strict";
 import { jitoTipAccount, sendJitoBundle, jitoBundleStatus, resetJitoCache, JITO_TIP_LAMPORTS } from "../lib/jito.mjs";
 
 const reply = (body, status = 200) => async () => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
-const tips = ["DfXygSm4jCyNCybVYYK6DwvWqjKee8pbDmJGcLWNDXjh", "ADuUkR4vqLUMWXxW9gh6D6L8pMSawimctcNZ5pGwDcEt"];
+const tips = ["DfXygSm4jCyNCybVYYK6DwvWqjKee8pbDmJGcLWNDXjh", "ADuUkR4vqLUMWXxW9gh6D6L8pMSawimctcNZ5pGwDcEt", "3AVi9Tg9Uo68tJfuvoKvqKNWKkC5wPdSSdeBnizKZ6jT", "96gYZGLnJYVFmbjzopPSU6QiEV5fGqZNyN9nmNhvrZU5", "HFqU5x63VTqvQss8hp11i4wVV8bD44PvwucfZ2bU7gRe", "Cw8CFyM9FkoMi7K7Crf6HNQqf4uEMzpKw6QNghXLvLkY", "ADaUMid9yfUytqMBgopwjb2DTLSokTSzL1zt6iGPaS49", "DttWaMuVvTiduZRnguLF7jNxTgiMBZ1hyAumKUiL2KRL"];
 
 test("tip account is picked from Jito's list and cached", async () => {
   resetJitoCache();
   let calls = 0;
   const fetch = async (...a) => (calls++, reply({ jsonrpc: "2.0", id: 1, result: tips })(...a));
-  assert.equal(await jitoTipAccount({ fetch, random: () => 0.99, now: 1 }), tips[1]);
+  assert.equal(await jitoTipAccount({ fetch, random: () => 0.99, now: 1 }), tips[7]);
   assert.equal(await jitoTipAccount({ fetch, random: () => 0, now: 2 }), tips[0]);
   assert.equal(calls, 1);
   assert.ok(JITO_TIP_LAMPORTS >= 1000n && JITO_TIP_LAMPORTS <= 5000000n);
+  resetJitoCache();
+  await assert.rejects(jitoTipAccount({ fetch: reply({ jsonrpc: "2.0", id: 1, result: tips.slice(0, 2) }), now: 3 }), (e) => e.safe);
+  resetJitoCache();
+  await assert.rejects(jitoTipAccount({ fetch: reply({ jsonrpc: "2.0", id: 1, result: [...tips.slice(0, 7), tips[0]] }), now: 4 }), (e) => e.safe);
 });
 
 test("sendBundle posts base64 encoding and returns the bundle id", async () => {

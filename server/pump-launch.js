@@ -537,7 +537,8 @@ export async function status(id, signature, broadcast = false, deps = {}) {
     fail("No matching signed launch is saved.", 404);
   if (d.bundle && Array.isArray(d.roles)) return bundleStatus(d, saved, broadcast, deps);
   if (d.bundle) return legacyBundleStatus(d, saved, deps);
-  return legacyStatus(d, saved, signature, broadcast);
+  // Pre-bundle single-transaction drafts are v1: track them on chain, never broadcast them.
+  return legacyStatus(d, saved, signature, false);
 }
 export const RESEND_MS = 2000;
 const lastSends = new Map();
@@ -545,6 +546,8 @@ const TRACE_BLOCKED = "The signed launch exceeds Solana’s instruction limit af
 function bundleIo(deps) {
   return {
     rpc: deps.rpc || connection(),
+    verifySimulation: deps.verifySimulation || verifyBundleSimulation,
+    checkNetwork: deps.checkNetwork || ((rpc) => checkNetwork(rpc, "mainnet")),
     read: deps.read || read,
     create: deps.create || create,
     createOnce: deps.createOnce || createOnce,
@@ -639,6 +642,7 @@ export async function bundleStatus(d, saved, broadcast = false, deps = {}) {
       if (rejected?.signature === signature) return blockedLaunchResult(d, signature, rejected.error);
       return { status: "checking", signature, mint };
     }
+    await io.checkNetwork(io.rpc);
     const blocked = await preflightBundle(d, saved, io);
     if (blocked) return recordBlocked(d, saved, blocked, io.createOnce);
     await io.createOnce(
@@ -700,14 +704,16 @@ async function preflightBundle(d, saved, io) {
     const measured = logTraceCount(r.logs);
     if (measured !== null && measured > 64) return TRACE_BLOCKED;
   }
-  const initial = sim.before[0]?.lamports, final = sim.after[0]?.lamports;
-  if (
-    !Number.isSafeInteger(initial) ||
-    !Number.isSafeInteger(final) ||
-    final < 0 ||
-    final >= initial ||
-    BigInt(initial - final) > BigInt(d.estimatedSolRaw)
-  )
+  // Same checks as the review on the exact signed bundle: SOL debit, immutable 100% fee assignment,
+  // NEAR quote, creator fee, buy delivered, no other wallet asset decreased.
+  let debit;
+  try {
+    debit = io.verifySimulation(d, sim);
+  } catch (error) {
+    if (!error?.safe) throw error;
+    return error.message + " Submission was blocked; your original receipt is preserved.";
+  }
+  if (debit > BigInt(d.estimatedSolRaw))
     return "The signed launch exceeds its reviewed SOL budget. The original receipt is preserved.";
   return null;
 }
@@ -833,6 +839,8 @@ export function verifyBuyReceipt(tx, d) {
 }
 // Single-transaction drafts saved before bundles keep their original submission path.
 async function legacySubmit(d, input) {
+  // Never store (and so never send) a new v1 single transaction; already-saved ones are only tracked.
+  if (!(await read("signed/" + d.id + ".json"))) fail(STALE_V1, 409);
   if (typeof input.wire !== "string" || input.wire.length > 5500)
     fail("The signed transaction is invalid.");
   const bytes = Buffer.from(input.wire, "base64");
