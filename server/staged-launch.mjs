@@ -162,13 +162,18 @@ async function submissionDecision(d,candidate,io) {
     return decision;
   }
 }
+function submittedPhase(d,saved,signature,io) {
+  // Only submit reaches here after validating a fully signed transaction from this wallet.
+  if(signature!==saved.signature) return {status:'canonical-signed',id:d.id,launchId:d.launchId,phase:d.phase,signature:saved.signature,wire:saved.wire};
+  return statusStaged(d,saved,true,io);
+}
 export async function submitStaged(d,input,deps) {
   const io=ioFor(deps),root=await rootFor(d.launchId,io);
   if(!PHASES.includes(d.phase)||typeof input.wire!=='string'||input.wire.length>MAX_LAUNCH_BASE64) fail('Invalid signed launch step. Reload the saved review.');
   const wire=Buffer.from(input.wire,'base64');
   walletSignedLaunchMatches(Buffer.from(d.wire,'base64'),wire);
   const signature=cloutPaymentSignature(wire),prior=await restoreSigned(d.id,io);
-  if(prior) return statusStaged(d,prior,true,io,signature);
+  if(prior) return submittedPhase(d,prior,signature,io);
   if(io.now()<=d.expiresAt) {
     await assertPhaseOpen(d,root,io);
     await claimMint(root,io);
@@ -178,7 +183,7 @@ export async function submitStaged(d,input,deps) {
   // An expired decision can retain late bytes for recovery, but can never authorize a send.
   const saved=await io.createOnce('signed/'+d.id+'.json',decision.kind==='signed'?decision.saved:candidate,sameId);
   await io.indexPending(saved);
-  return statusStaged(d,saved,true,io,signature);
+  return submittedPhase(d,saved,signature,io);
 }
 function phaseResult(root,completed,phase) {
   const result={launchId:root.id,phase,signature:completed[phase]?.signature,coin:completed.create?.coin};
@@ -188,7 +193,7 @@ export async function statusStaged(d,saved,broadcast,deps,requestedSignature) {
   const io=ioFor(deps);
   saved ||= await restoreSigned(d.id,io);
   if(!saved) fail('No signed launch step is saved. Resume submission of the original signed bytes.',404);
-  if(requestedSignature!==undefined&&requestedSignature!==saved.signature) return {status:'canonical-signed',id:d.id,launchId:d.launchId,phase:d.phase,signature:saved.signature,wire:saved.wire};
+  if(requestedSignature!==undefined&&requestedSignature!==saved.signature) return {status:'canonical-required',id:d.id,launchId:d.launchId,phase:d.phase,error:'Resume submission of your saved signed phase to recover its canonical receipt.'};
   const root=await rootFor(d.launchId,io),completed=await completedPhases(root,io);
   if(completed[d.phase]) {await io.removePending(saved);return phaseResult(root,completed,d.phase);}
   const terminal=await io.read(outcomeKey(d.id));

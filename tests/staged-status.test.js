@@ -147,7 +147,7 @@ test('a late resubmission recovers an accepted signature after an interrupted ou
   assert.equal(f.data.has('staged/outcomes/'+f.d.id+'.json'),false);
   assert.equal(f.state.sends.length,0);
 });
-test('competing valid wallet signatures recover the canonical bytes on both submit and status',async()=>{
+test('competing valid wallet signatures recover canonical bytes only through validated submission',async()=>{
   const f=fixture();f.state.slot=99;
   assert.equal((await submitStaged(f.d,{wire:f.wire},f.io)).status,'checking');
   const conflict=await submitStaged(f.d,{wire:f.alternateWire},f.io);
@@ -155,7 +155,9 @@ test('competing valid wallet signatures recover the canonical bytes on both subm
   assert.equal(conflict.id,f.d.id);assert.equal(conflict.launchId,f.root.id);assert.equal(conflict.phase,f.d.phase);
   const alternateSignature=cloutPaymentSignature(Buffer.from(f.alternateWire,'base64'));
   assert.notEqual(alternateSignature,f.signature);
-  assert.deepEqual(await statusStaged(f.d,f.saved,false,f.io,alternateSignature),conflict);
+  const hint=await statusStaged(f.d,f.saved,false,f.io,alternateSignature);
+  assert.equal(hint.status,'canonical-required');assert.equal(hint.wire,undefined);assert.equal(hint.signature,undefined);
+  assert.equal(hint.id,f.d.id);assert.equal(hint.launchId,f.root.id);assert.equal(hint.phase,f.d.phase);
   assert.equal(f.state.sends.length,0);
 });
 test('status restores the accepted signature from its decision if the outbox write was interrupted',async()=>{
@@ -163,4 +165,17 @@ test('status restores the accepted signature from its decision if the outbox wri
   f.data.set('staged/decisions/'+f.d.id+'.json',{kind:'signed',saved:f.saved});
   assert.equal((await statusStaged(f.d,null,false,f.io,f.signature)).status,'checking');
   assert.equal(f.data.get('signed/'+f.d.id+'.json').signature,f.signature);
+});
+test('status never exposes retired signed bytes, even with missing or forged signatures',async()=>{
+  const f=fixture();f.data.set('signed/'+f.d.id+'.json',f.saved);
+  f.data.set('staged/decisions/'+f.d.id+'.json',{kind:'expired'});
+  for(const signature of [undefined,null,'forged',f.signature]) {
+    const result=await statusStaged(f.d,f.saved,false,f.io,signature);
+    assert.equal(result.wire,undefined);assert.equal(result.status==='canonical-signed',false);
+  }
+  const decoded=getTransactionDecoder().decode(Buffer.from(f.wire,'base64'));
+  const badSignature=new Uint8Array(decoded.signatures[f.root.creator]);badSignature[0]^=1;
+  const tampered=Buffer.from(getTransactionEncoder().encode({...decoded,signatures:{...decoded.signatures,[f.root.creator]:badSignature}}));
+  await assert.rejects(submitStaged(f.d,{wire:tampered.toString('base64')},f.io),/signature/);
+  assert.equal(f.state.sends.length,0);
 });
