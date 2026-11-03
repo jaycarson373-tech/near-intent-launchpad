@@ -52,3 +52,11 @@ near-sandbox, near-workspaces and secp256k1 unless approved; the website does no
 
 ## Owner-directed 15-minute reward worker (2026-11-02)
 The owner requested automatic claims and proportional holder payouts (65/35). The new Railway-only worker implementation is in `worker/`, and **defaults off**. The public treasury identity must match its protected signing key; `INTENT_REWARDS_ENABLED=1` is the operator’s explicit activation switch. New launches gate on a current treasury-signed readiness heartbeat. Launch and SOL conversion approvals still belong to the user’s wallet. Agents must not perform funded acceptance or invent operator identities; no funded acceptance has occurred. Config and exact remaining checks are in `RELEASE_NEAR_SOLANA.md`. Preserve pending wires, authenticated journals, old immutable fee assignments and the collaborator’s native NEAR work.
+
+## Cross-Agent Context
+
+- `AGENTS.md` is the cross-agent entrypoint for Codex, OpenCode, Pi, and Cline. Keep project truth in `CLAUDE.md`, `PROGRESS.md`, and `DECISIONS.md`; do not duplicate volatile status into `.opencode/`, `.codex/`, or `.agents/`.
+- Shared reusable workflows live in `.agents/skills/`. Use `context-catchup`, `context-save`, and `context-deep-sync` for tool-neutral context operations.
+- OpenCode adapter files live in `.opencode/`. They should route to canonical files and shared skills, not restate current branch stacks, test counts, audit counts, or priorities.
+- Codex project config, if present, lives in `.codex/config.toml`; repo instructions still come from `AGENTS.md`.
+- When Codex, OpenCode, Pi, or Cline writes `PROGRESS.md`, its own file under `.claude/sessions/`, or task files, include an actor label such as `Actor: Codex` or `Actor: OpenCode`.

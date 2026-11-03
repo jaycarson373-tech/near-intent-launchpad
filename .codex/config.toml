@@ -1,0 +1,5 @@
+# Project-local Codex config.
+#
+# Keep durable repo instructions in AGENTS.md.
+# Keep reusable workflows in .agents/skills/.
+# Do not store provider credentials, personal defaults, or volatile project state here.

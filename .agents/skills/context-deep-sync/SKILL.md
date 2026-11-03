@@ -1,0 +1,8 @@
+---
+name: context-deep-sync
+description: Verify code reality and refresh shared context. Use after milestones or when PROGRESS/CONTEXT may be stale; never for routine session save.
+---
+
+# Context Deep Sync
+
+Classify active task files and skip only contended files during task archival; never refuse the whole sync. Compare recent `PROGRESS.md` claims against `git log --since="14 days ago" --stat`, `git status --short`, and current source files. Before archiving each dead session, promote load-bearing `## Why` entries and mark finished loops `[x]` or task-owned loops `[→ task:<name>]`. From this repo run `python3 ~/.claude/scripts/context_state.py promote-loops --session-file <absolute-session-path> --scope <repo>/<area>[#task] --by <current-participant>` (use `other` if no mapped area applies). Stop archival for that file if promotion fails. Never promote on a plain mid-work save or a red-line handoff. Report `Archived N session file(s); promoted M Why entries; K open loops → findings.` Archive a dead live session with `python3 .claude/scripts/context_state.py archive-session --session-file <direct-child-basename.md> --month YYYY-MM`. Apply structural task, context, decision, progress, and execution edits with `python3 .claude/scripts/context_state.py replace-if-hash --path <repo-relative-path> --expected-sha <64-lowercase-hex> --content-file <file>`; new progress records use `python3 .claude/scripts/context_state.py prepend --path PROGRESS.md --record-file <file>`. Reread and reapply on conflict. Code reality beats prior notes. Do not add unverified claims or create separate Codex/OpenCode context files.
