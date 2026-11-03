@@ -48,9 +48,25 @@ async function send(instructions, label) {
   if (result.value.err) throw Error(label + " failed: " + JSON.stringify(result.value.err) + " " + signature);
   console.log(label + ": " + signature);
 }
-const slot = await rpc.getSlot("finalized");
-const [create, table] = AddressLookupTableProgram.createLookupTable({ authority: payer.publicKey, payer: payer.publicKey, recentSlot: slot });
-await send([create], "created table " + table.toBase58());
+// The create instruction needs a slot present in every node's SlotHashes. A load-balanced RPC can answer
+// getSlot from a node ahead of the one that simulates ("is not a recent slot"), and skipped slots never
+// appear, so use a produced (non-skipped) slot ~20 behind finalized and retry with a fresh one if needed.
+let table;
+for (let attempt = 1; ; attempt++) {
+  const finalized = await rpc.getSlot("finalized");
+  const produced = await rpc.getBlocks(finalized - 40, finalized - 20, "finalized");
+  if (!produced.length) throw Error("No recent produced slot found; retry in a few seconds.");
+  const [create, address] = AddressLookupTableProgram.createLookupTable({ authority: payer.publicKey, payer: payer.publicKey, recentSlot: produced.at(-1) });
+  try {
+    await send([create], "created table " + address.toBase58());
+    table = address;
+    break;
+  } catch (error) {
+    if (attempt >= 3 || !/not a recent slot/.test(String(error?.message) + JSON.stringify(error?.transactionLogs || []))) throw error;
+    console.log("Slot not yet known to the simulating node; retrying with a fresh slot...");
+    await new Promise((r) => setTimeout(r, 2000));
+  }
+}
 for (let i = 0; i < addresses.length; i += 20)
   await send([AddressLookupTableProgram.extendLookupTable({ lookupTable: table, authority: payer.publicKey, payer: payer.publicKey, addresses: addresses.slice(i, i + 20).map((a) => new PublicKey(a)) })], "added " + Math.min(20, addresses.length - i) + " addresses");
 const live = (await rpc.getAddressLookupTable(table, { commitment: "finalized" })).value;
