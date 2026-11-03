@@ -1,5 +1,9 @@
 # near-intent-launchpad: current context
 
+## Combined release status — November 2/3, 2026
+
+Merged collaborator v0 execution through `6738ae9` after the earlier curve QA: resolved the signed-review guard with the collaborator's `isSigned` helper (same partial-bundle protection), retained both context/release histories and all new v0 execution/recovery tests. **107 tests pass**, production build passes, lint retains only the existing native-NEAR warning. Vercel environment-name inspection confirms both lookup-table settings exist (values not retrieved). Final health and funded acceptance remain distinct. Earlier successful unsigned v1 simulation below does not prove v0 relay landing. The collaborator now separates SOL conversion in setup from initial buy in fees, all reviewed/submitted as a single Jito bundle; preserved their accurate UI explanation. No table creation or wallet spending performed here.
+
 ## NEAR launch/curve release — November 2, 2026 (Codex)
 
 Preserved collaborator PRs #2–#4 by fast-forwarding through `ab26d67`; the new upstream tree changed only context notes. Added launch availability retry and same-mint unsigned review refresh. Signed/partial bundles remain recovery-only. Added finalized, program/quote-verified Pump curve reads, net NEAR reserves, live estimated completion percentage/amount, price in NEAR, and curve explorer links. Missing or invalid reads remain unavailable; migrated reserves are not presented as zero funds raised. The official Pump SDK constant-product completion quote supplies the calculation, rather than a fixed SOL graduation threshold. DEX quotes must match NEAR.

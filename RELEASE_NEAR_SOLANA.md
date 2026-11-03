@@ -150,3 +150,8 @@ Built on collaborator main through ab26d67 (PRs #2–#4), with no conflict or so
 100% holder-benefit copy preserves 65% regular rewards / 35% low-volume treasury, with existing median-volume/capped-release math unchanged. Owner logo is used without redrawing; X link and copyable pending CA added. Mainnet CA account was absent at finalized slot 464754371.
 
 80 tests pass (SDK quote comparison, finalized identity checks, cache/error recovery, signed-review guards included); build pass; lint one pre-existing native NEAR warning. Mobile 390px and desktop 1440px checked, no overflow. Local curve fixture screenshot is explicitly a layout test, never public activity. Fresh unsigned public prepare for 0.01 SOL/2% passed sequential simulation, 3 wire transactions, 0.031016760 SOL estimated total. No signing, broadcast, spending, reward activation, new policy or financial acceptance is claimed. The owner must approve a real wallet launch and confirm an attributable fee/holder delivery cycle.
+
+
+### Combined release verification after collaborator's v0 merge
+
+Merged through 6738ae9, including v0/Jito execution, frozen table verification, original-signature recovery and relay verdict logging. Used collaborator isSigned helper during conflict resolution; both review/retry and partial-bundle protections remain. 107 tests pass, build passes, lint only the pre-existing native-NEAR warning. Both lookup-table environment names are already present in Vercel; no secret values were read. Earlier unsigned v1 simulation evidence is historical, not v0 funded acceptance. Preserve collaborator's accurate split: conversion in setup, buy in fee-lock transaction, one Jito bundle.
