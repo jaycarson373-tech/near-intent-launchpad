@@ -62,7 +62,7 @@ test('an interrupted beneficiary allocation rolls back all credits, routes and c
 });
 test('authenticated v1 journals remain readable and new checkpoints fence out old allocation workers',()=>{
  const context={treasury,policyHash:POLICY_HASH,secret:Buffer.alloc(32,4)},database=Buffer.from('SQLite format 3\0test-only journal content');
- const current=envelope(database,context,7),{authentication,...body}=JSON.parse(current);
+ const current=envelope(database,context,7),{authentication:_authentication,...body}=JSON.parse(current);
  assert.equal(body.version,2);assert.deepEqual(decodeEnvelope(current,context).database,database);
  body.version=1;
  const legacy=Buffer.from(JSON.stringify({...body,authentication:createHmac('sha256',context.secret).update(JSON.stringify(body)).digest('hex')}));
