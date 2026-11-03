@@ -1035,6 +1035,7 @@ export async function legacyBundleStatus(d,saved,deps={}){
   return {status:'checking',signature:saved.signature,mint:d.mint};
 }
 async function recordBlocked(d,saved,error,save=createOnce){
+  console.error(JSON.stringify({service:'intent-pad-api',launchBlocked:true,id:d.id,layout:d.layout||null,parts:Array.isArray(saved.wires)?saved.wires.length:1,error:String(error).slice(0,300)}));
   await save('submission-checks/'+d.id+'.json',{id:d.id,signature:saved.signature,error,checkedAt:Date.now()},(a,b)=>a.signature===b.signature);
   return blockedLaunchResult(d,saved.signature,error);
 }
