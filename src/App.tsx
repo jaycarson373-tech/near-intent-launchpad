@@ -373,9 +373,9 @@ export default function App() {
                   <span className="status-dot" /> NEAR POWERED. SOLANA NATIVE.
                 </span>
                 <h1>
-                  Solana’s dedicated
+                  Launch with
                   <br />
-                  <span>NEAR launchpad.</span>
+                  <span>intent.</span>
                 </h1>
                 <p>
                   Launch a coin paired with NEAR.
