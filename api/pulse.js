@@ -1,3 +1,4 @@
+import {publicActivity} from "../lib/public-directory.mjs";
 import { send, fail, handleError } from "../lib/http.js";
 import { nearPrice } from "../lib/near-price.mjs";
 import { read, configured } from "../lib/store.js";
@@ -14,7 +15,7 @@ async function rewardActivity() {
       const value = configured() ? await read("rewards/activity.json") : null;
       cached =
         value?.policyHash === POLICY_HASH && value.assetMint === NEAR
-          ? { status: "available", ...value }
+          ? { status: "available", ...value, events: publicActivity(value.events) }
           : { status: "awaiting", events: [], totalDistributedRaw: null };
     } catch {
       cached = { status: "unavailable", events: [], totalDistributedRaw: null };

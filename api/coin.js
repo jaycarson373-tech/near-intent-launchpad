@@ -1,3 +1,4 @@
+import {isPublicLaunch} from "../lib/public-directory.mjs";
 import { readCurve } from "../lib/curve-reader.mjs";
 import { send, handleError, fail } from "../lib/http.js";
 import { read } from "../lib/store.js";
@@ -17,6 +18,7 @@ export default async function handler(req, res) {
       "mint",
     );
     address(mint);
+    if (!isPublicLaunch(mint)) fail("This launch is no longer listed.", 404);
     const d = await read("receipts/" + mint + ".json");
     if (!d)
       fail("No confirmed Intent Pad launch was found for this mint.", 404);

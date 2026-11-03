@@ -1,3 +1,4 @@
+import {isPublicLaunch} from "../lib/public-directory.mjs";
 import {FEE_ALLOCATION_VERSION} from "../lib/fee-allocation.mjs";
 import {solConversion,walletTokenState,verifyConversionEffects} from '../lib/sol-dev-buy.mjs';
 import {compactTokenSetup,assertLaunchTraceBudget,assertTraceCount,innerInstructionCount,blockedLaunchResult} from '../lib/launch-budget.mjs';
@@ -1110,6 +1111,7 @@ async function reconcilePending() {
 export async function listCoins() {
   await reconcilePending();
   return (await records("receipts/"))
+    .filter((coin) => isPublicLaunch(coin.mint))
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
     .map(publicCoin);
 }

@@ -86,3 +86,7 @@ SOL buy unlinks the old conversion (`fundingSolRaw`) and asks for a new wallet-a
 keep this logic. Not yet exercised with a real failed mainnet launch.
 Uncommitted `fix/trace-headroom` work (lookup tables + Jito, superseded by `bccc257`) was saved unmerged to
 `wip/trace-headroom-snapshot`; its owning session's checkout was left untouched.
+
+## Retire owner test launches — November 3, 2026
+
+Owner requested removal of both NEARCAT acceptance launches. Exact mint denylist removes only these two records from public directory, coin-detail and reward-detail endpoints and their events from the public tape. New launches with the same name/symbol are unaffected. Immutable receipts, fee assignments, metadata, worker budgets/journal and onchain transactions remain intact; this does not destroy reward obligations or remove a token from Solana. 116 tests pass and production build passes. No financial operation performed.
