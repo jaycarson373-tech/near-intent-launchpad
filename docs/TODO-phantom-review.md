@@ -1,4 +1,20 @@
-# TODO (owner): ask Phantom to review intentpad.fun
+# Phantom launch warning investigation
+
+## Current fix — separate confirmed approvals (2026-11-03)
+
+The owner approved replacing dependent bundle approvals with standalone, individually simulated v1 phases:
+account setup; creation plus immutable fee assignment together; optional SOL conversion plus initial buy together.
+Each phase finalizes before the next review is prepared. Creation publishes the coin even if the buy is canceled.
+New launches use RPC preflight, not Jito; existing signed bundles retain their original recovery rules.
+
+This removes the known missing-mint simulation dependency. Wallet-added Lighthouse assertions are retained and
+validated. It does not prove that Phantom will stop displaying every warning: actual owner-wallet approval and
+funded launch acceptance remain outstanding. If the warning persists, use Phantom's current transaction/domain
+review guidance with this new flow; the historical bundle form below no longer describes new launches.
+
+Source: https://docs.phantom.com/recipes/transactions/resolve-transaction-simulation-warnings .
+
+## Historical bundle investigation and unsubmitted review draft
 
 Phantom shows "This dApp could be malicious. Do not proceed unless you are certain it is safe." on launches.
 Phantom's docs (https://docs.phantom.com/developer-powertools/domain-and-transaction-warnings, read 2026-11-03)

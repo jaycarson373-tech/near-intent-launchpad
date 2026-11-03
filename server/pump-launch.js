@@ -1,5 +1,7 @@
 import {isPublicLaunch} from "../lib/public-directory.mjs";
 import {FEE_ALLOCATION_VERSION} from "../lib/fee-allocation.mjs";
+import { prepareStaged, submitStaged, statusStaged } from './staged-launch.mjs';
+import { STAGED_FLOW } from '../lib/staged-launch.mjs';
 import {solConversion,walletTokenState,verifyConversionEffects} from '../lib/sol-dev-buy.mjs';
 import {compactTokenSetup,assertLaunchTraceBudget,assertTraceCount,innerInstructionCount,blockedLaunchResult} from '../lib/launch-budget.mjs';
 import {launchParts,launchMemo,buildBundle,compileBundleTx,assertV0Wires,logTraceCount,simulateLaunchBundle,messageMatchesReceipt,bundleProgress,ATA_CREATE_TRACE,BUY_TRACE} from '../lib/launch-bundle.mjs';
@@ -114,17 +116,10 @@ export async function health() {
 async function healthCheck() {
   const missing = [];
   if (!configured()) missing.push("durable launch storage");
-  let rpc = null;
   try {
-    rpc = (await context()).rpc;
+    await context();
   } catch {
     missing.push("mainnet RPC or NEAR market configuration");
-  }
-  // v0 bundles need the owner's frozen lookup table (INTENT_LOOKUP_TABLE + INTENT_LOOKUP_TABLE_SHA256).
-  try {
-    await launchLookupTable(rpc || connection());
-  } catch {
-    missing.push("frozen launch lookup table");
   }
   const rewards=await rewardReadiness();missing.push(...rewards.missing);
   return {
@@ -145,7 +140,15 @@ async function draft(id) {
   if (!d) fail("This launch review could not be found.", 404);
   return d;
 }
+function stagedDependencies(deps) {
+  return { context, indexPending, removePending, verifyBuyReceipt, verifyConversionReceipt, ...deps };
+}
 export async function prepare(raw, deps = {}) {
+  if(raw?.flow!==STAGED_FLOW) fail('Reload the page to use separate launch approvals.',409);
+  return prepareStaged(raw,stagedDependencies(deps));
+}
+// Kept for offline qualification of historical bundle reviews; the public prepare route uses staged approvals.
+export async function prepareBundle(raw, deps = {}) {
   // Older pages sign a single transaction or a v1 bundle (which never lands through Jito).
   if (raw?.flow !== "v0-bundle" || raw?.feeAllocationVersion !== FEE_ALLOCATION_VERSION) fail("Reload the page to use the updated launch flow.", 409);
   if (!configured())
@@ -483,6 +486,7 @@ export function verifyBundleSimulation(d,sim){
 const STALE_V1 = "This launch review used a transaction format that cannot land. Prepare a fresh review; nothing was submitted.";
 export async function submit(input, deps = {}) {
   const d = await draft(input.id);
+  if(d.flow===STAGED_FLOW) return submitStaged(d,input,stagedDependencies(deps));
   if (!d.bundle) return legacySubmit(d, input);
   // v1 bundles (prepared before v0) never land through Jito: never save or send new signatures.
   if (!Array.isArray(d.roles)) {
@@ -535,6 +539,7 @@ export async function submit(input, deps = {}) {
 export async function status(id, signature, broadcast = false, deps = {}) {
   const d = await draft(id),
     saved = await read("signed/" + id + ".json");
+  if(d.flow===STAGED_FLOW) return statusStaged(d,saved,broadcast,stagedDependencies(deps),signature);
   if (!saved || saved.signature !== signature)
     fail("No matching signed launch is saved.", 404);
   if (d.bundle && Array.isArray(d.roles)) return bundleStatus(d, saved, broadcast, deps);

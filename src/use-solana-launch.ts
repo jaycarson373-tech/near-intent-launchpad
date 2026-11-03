@@ -4,6 +4,7 @@ import { getWallets } from "@wallet-standard/app";
 import type { Wallet } from "@wallet-standard/base";
 import { getTransactionDecoder, getTransactionEncoder } from "@solana/kit";
 import bs58 from "bs58";
+import { phaseReceipt, stagedContinuation, finishableBuy, canonicalSignedReceipt, validateCanonicalRequired } from "../lib/staged-review.mjs";
 import { unsignedReviewDetails } from "../lib/launch-review.mjs";
 import { launchDraft } from "../lib/launch-draft-store.mjs";
 import {
@@ -52,7 +53,12 @@ export const EMPTY_COIN: CoinDraft = {
 export type Review = {
   feeTreasury:string;rewardPolicyHash:string;feeAllocationVersion?:number;
   id: string;
-  phase?:"conversion"|"launch";
+  flow?:"staged-v1";
+  launchId?:string;
+  completedPhases?:string[];
+  transactionVersion?:number;
+  coin?:Coin;
+  phase?:"setup"|"create"|"buy"|"conversion"|"launch";
   atomicSolBuy?:boolean;
   bundle?:boolean;
   // "v0-alt": v0 bundle with the frozen lookup table. Bundle reviews without it are v1 (bccc257),
@@ -74,7 +80,12 @@ export type Review = {
   symbol: string;
   creator: string;
 };
+type Prepared = Review | {status:"confirmed";coin:Coin};
 type Saved = {
+  launchId?:string;
+  phaseRetry?:boolean;
+  completedPhases?:string[];
+  coin?:Coin;
   creator: string;
   privateKey: CryptoKey;
   publicKey: string;
@@ -99,7 +110,7 @@ const deadMessage = (status: string, error?: string) =>
     : status === "failed"
       ? "Failed onchain, so nothing was created. Start a new launch to retry."
       : "Expired before landing, so nothing was charged. Start a new launch to retry.";
-type LaunchStatus = { status: string; coin?: Coin; funding?: { id: string; signature: string }; error?: string; created?: boolean };
+type LaunchStatus = { id?:string;wire?:string;launchId?:string;phase?:string;signature?:string; status: string; coin?: Coin; funding?: { id: string; signature: string }; error?: string; created?: boolean };
 const isSigned = (saved?: Saved) => !!(saved?.signed || saved?.bundleSigned?.length);
 const isV0Bundle = (r?: Review) =>
   r?.layout === "v0-alt" && Array.isArray(r.roles) && Array.isArray(r.wires) && r.roles.length === r.wires.length && r.roles.filter((x) => x === "create").length === 1;
@@ -152,6 +163,8 @@ export function useSolanaLaunch() {
     [review, setReview] = useState<Review | null>(null),
     [signature, setSignature] = useState(""),
     [confirmedCoin, setConfirmedCoin] = useState<Coin | null>(null),
+    [createdCoin, setCreatedCoin] = useState<Coin | null>(null),
+    [detailsLocked, setDetailsLocked] = useState(false),
     [stage, setStage] = useState("idle"),
     [health, setHealth] = useState<LaunchHealth | null>(null),
     [healthChecking, setHealthChecking] = useState(false),
@@ -174,12 +187,16 @@ export function useSolanaLaunch() {
   async function refreshReview() {
     const owner=current.current?.account.address;
     if (!owner || lock.current) return;
+    lock.current=true;setBusy(true);
     try {
       const saved=await launchDraft("get","mainnet:"+owner) as Saved|undefined;
-      const details=unsignedReviewDetails(saved,owner);
       if(current.current?.account.address!==owner)throw Error("Reconnect the original wallet to refresh this review.");
+      if(saved?.review?.flow === "staged-v1") {await continueStaged(saved);return;}
+      const details=unsignedReviewDetails(saved,owner);
+      lock.current=false;
       await prepare(details);
-    } catch(e) {setMessage((e as Error).message);}
+    } catch(e) {if(current.current?.account.address===owner)setMessage((e as Error).message);}
+    finally {lock.current=false;setBusy(false);}
   }
   useEffect(() => {
     current.current = connected;
@@ -220,6 +237,8 @@ export function useSolanaLaunch() {
       current.current = { wallet, account };
       setConnected({ wallet, account });
       setConfirmedCoin(null);
+      setCreatedCoin(null);
+      setDetailsLocked(false);
       setChoosing(false);
       setReview(null);
       setSignature("");
@@ -227,10 +246,13 @@ export function useSolanaLaunch() {
       const saved = (await launchDraft("get", "mainnet:" + account.address)) as
         | Saved
         | undefined;
+      if(current.current?.account.address!==account.address)return;
+      setDetailsLocked(!!saved?.launchId);
       if (saved?.review) {
         setReview(saved.review);
+        setCreatedCoin(saved.coin || saved.review.coin || null);
         setSignature(saved.signature || "");
-        setStage(isSigned(saved) ? "submitted" : "review");
+        setStage(isSigned(saved) ? "submitted" : saved.phaseRetry ? "retry-phase" : saved.completedPhases?.includes(saved.review.phase || "") ? "phase-confirmed" : "review");
         setMessage(
           isSigned(saved)
             ? "Your signed launch is saved. Resume the original transaction."
@@ -261,6 +283,8 @@ export function useSolanaLaunch() {
         setConnected(null);
         setBalance(null);
         setConfirmedCoin(null);
+        setCreatedCoin(null);
+        setDetailsLocked(false);
         setReview(null);
         setSignature("");
         setStage("idle");
@@ -290,13 +314,16 @@ export function useSolanaLaunch() {
     }
     lock.current = true;
     setBusy(true);
-    setMessage("Checking the SOL purchase route and simulating coin creation.");
+    setMessage("Simulating account setup. Creation and the optional atomic swap and buy require separate approvals.");
     const creator = connected.account.address,
       key = "mainnet:" + creator;
     let amountChanged = false,
       held: Saved | undefined;
     try {
       let saved = (await launchDraft("get", key)) as Saved | undefined;
+      if (saved?.launchId) throw Error("Resume this saved launch before preparing another coin. Its setup and creation cannot be edited.");
+      setCreatedCoin(null);
+      setDetailsLocked(false);
       if (isSigned(saved)) {
         throw Error(
           "This wallet has a signed launch. Resume it before preparing another coin.",
@@ -327,7 +354,7 @@ export function useSolanaLaunch() {
       await launchDraft("put", key, saved);
       const result = await api<Review>("/api/launch?action=prepare", {
         ...details,
-        flow: "v0-bundle",
+        flow: "staged-v1",
         feeAllocationVersion: FEE_ALLOCATION_VERSION,
         creator,
         mint: saved.publicKey,
@@ -343,7 +370,7 @@ export function useSolanaLaunch() {
       setStage("review");
       setMessage(
         amountChanged
-          ? "New amount prepared as one SOL buy and launch. Your earlier NEAR stays in your wallet."
+          ? "New amount prepared for separate setup, creation and optional buy approvals. Your earlier NEAR stays in your wallet."
           : "Simulation passed. Review the costs before approving in your wallet.",
       );
     } catch (e) {
@@ -364,12 +391,122 @@ export function useSolanaLaunch() {
       setBusy(false);
     }
   }
+  async function continueStaged(saved: Saved) {
+    const owner = current.current?.account.address;
+    if (!owner) throw Error("Reconnect the original wallet to resume this phase.");
+    const input = stagedContinuation(saved, owner);
+    const result = await api<Prepared>("/api/launch?action=prepare", input);
+    if ("status" in result) {
+      if (result.status !== "confirmed" || !result.coin || result.coin.mint !== saved.publicKey)
+        throw Error("The completed launch receipt does not match this mint. Keep the saved recovery and retry.");
+      await launchDraft("delete", "mainnet:" + owner);
+      if (current.current?.account.address !== owner) return;
+      setReview(null); setSignature(result.coin.signature); setStage("confirmed");
+      setConfirmedCoin(result.coin); setCreatedCoin(result.coin);
+      setMessage("This launch is already finalized and its coin page is published.");
+      return;
+    }
+    if (result.flow !== "staged-v1" || result.launchId !== input.launchId || result.mint !== saved.publicKey || result.creator !== owner)
+      throw Error("The refreshed review does not match the saved launch. Keep the original receipt and retry.");
+    saved.review = result;
+    delete saved.phaseRetry;
+    saved.completedPhases = result.completedPhases || saved.completedPhases;
+    saved.coin = result.coin || saved.coin;
+    await launchDraft("put", "mainnet:" + owner, saved);
+    if (current.current?.account.address !== owner) return;
+    setReview(result); setSignature(""); setStage("review"); setCreatedCoin(saved.coin || null);
+    setMessage("The previous phase is finalized. Review this phase before approving it separately.");
+  }
+  async function stagedResult(saved: Saved, result: LaunchStatus, source: "submit" | "status" = "submit") {
+    if (result.status === "canonical-required") {
+      if (source !== "status") throw Error("The server could not reconcile the saved signed phase. Keep its recovery and retry confirmation later.");
+      validateCanonicalRequired(saved, result);
+      await follow(saved);
+      return true;
+    }
+    if (result.status === "canonical-signed") {
+      if (source !== "submit") throw Error("Signed recovery requires resubmitting the locally saved original phase. Keep its recovery and retry confirmation.");
+      const next = canonicalSignedReceipt(saved, result);
+      await launchDraft("put", "mainnet:" + saved.creator, next);
+      if (current.current?.account.address !== saved.creator) return true;
+      setSignature(next.signature!); setStage("submitted");
+      setMessage("Recovered the original server-saved signed phase. Confirmation and resume use only those exact bytes; no new wallet approval is requested.");
+      return true;
+    }
+    if (result.status === "phase-confirmed") {
+      const next = phaseReceipt(saved, result);
+      await launchDraft("put", "mainnet:" + saved.creator, next);
+      if (current.current?.account.address !== saved.creator) return true;
+      setSignature(""); setStage("phase-confirmed"); setCreatedCoin(next.coin || null);
+      setMessage("Phase finalized. Preparing the next review; its approval remains separate.");
+      await continueStaged(next);
+      return true;
+    }
+    if (result.status === "confirmed") {
+      if (!result.coin || result.coin.mint !== saved.publicKey) throw Error("The completed launch receipt is unavailable. Keep the signed phase and check again.");
+      return false;
+    }
+    if (!["failed", "expired"].includes(result.status)) {
+      if (current.current?.account.address === saved.creator) {
+        setStage(result.status);
+        setMessage(result.error || "Tracking the original signed phase. Earlier confirmed phases remain; no replacement will be signed until this outcome is known.");
+      }
+      return true;
+    }
+    // Only definitive server outcomes release this phase. Unknown/blocked status
+    // and transport errors always retain its original exact signed bytes.
+    delete saved.signed; delete saved.signature; delete saved.bundleSigned;
+    saved.phaseRetry = true;
+    await launchDraft("put", "mainnet:" + saved.creator, saved);
+    if (current.current?.account.address !== saved.creator) return true;
+    setSignature(""); setStage("retry-phase"); setCreatedCoin(saved.coin || null);
+    setMessage(result.error || "This phase did not complete. Refresh this phase to retry with the same mint; earlier confirmed phases remain.");
+    return true;
+  }
+  async function finishWithoutBuy() {
+    const owner = current.current?.account.address;
+    if (!owner || lock.current) return;
+    lock.current = true; setBusy(true);
+    try {
+      const saved = await launchDraft("get", "mainnet:" + owner) as Saved | undefined;
+      if (!saved || !finishableBuy(saved)) throw Error("Confirm creation and resolve any signed buy before finishing.");
+      await launchDraft("delete", "mainnet:" + owner);
+      if (current.current?.account.address !== owner) return;
+      setReview(null); setSignature(""); setStage("confirmed"); setConfirmedCoin(saved.coin!);
+      setMessage("Your coin is live. The optional initial buy was skipped.");
+    } catch (error) { if(current.current?.account.address===owner)setMessage((error as Error).message); }
+    finally { lock.current = false; setBusy(false); }
+  }
+  async function signStaged(saved: Saved, connection: Connected) {
+    const phase = saved.review!;
+    const signer = connection.wallet.features["solana:signTransaction"] as {
+      supportedTransactionVersions?: readonly (string | number)[];
+      signTransaction: (input:{account:Account;transaction:Uint8Array;chain:string}) => Promise<{signedTransaction:Uint8Array}[]>;
+    } | undefined;
+    if (!signer?.supportedTransactionVersions?.includes(1)) throw Error("This wallet does not advertise transaction version 1 support. Choose a compatible wallet; nothing was submitted.");
+    if (!phase.wire || phase.transactionVersion !== 1) throw Error("Refresh this phase to obtain a supported transaction review.");
+    setStage("wallet");
+    setMessage("Approve only " + phase.phase + ". This phase has its own reviewed SOL debit. Setup rent remains if you stop; creation is permanent. The optional swap and buy are atomic and separately approved.");
+    const result = await signer.signTransaction({account:connection.account,transaction:from64(phase.wire),chain:"solana:mainnet"});
+    if (result.length !== 1 || !result[0]?.signedTransaction) throw Error("The wallet did not sign this phase. Retry its review.");
+    let wire = new Uint8Array(result[0].signedTransaction);
+    if (phase.phase === "create") {
+      const decoded = getTransactionDecoder().decode(wire);
+      const mintSignature = new Uint8Array(await crypto.subtle.sign({name:"Ed25519"},saved.privateKey,new Uint8Array(decoded.messageBytes)));
+      wire = new Uint8Array(getTransactionEncoder().encode({...decoded,signatures:{...decoded.signatures,[saved.publicKey]:mintSignature}}));
+    }
+    walletSignedLaunchMatches(from64(phase.wire),wire);
+    saved.signed=wire; saved.signature=cloutPaymentSignature(wire);
+    saved.launchId=phase.launchId; saved.completedPhases=phase.completedPhases || [];
+    await launchDraft("put", "mainnet:" + saved.creator, saved);
+    if(current.current?.account.address===saved.creator){setSignature(saved.signature);setDetailsLocked(true);}
+  }
   async function converted(saved:Saved,funding:{id:string;signature:string}){
     saved.fundingId=funding.id;saved.fundingSignature=funding.signature;saved.fundingSolRaw=saved.review?.devBuySolRaw;delete saved.signed;delete saved.bundleSigned;delete saved.signature;delete saved.review;await launchDraft('put','mainnet:'+saved.creator,saved);
     if(current.current?.account.address!==saved.creator)return;
     setReview(null);setSignature('');setStage('idle');setMessage('SOL conversion finalized. Preparing coin creation; no second SOL conversion is requested.');
-    const result=await api<Review>('/api/launch?action=prepare',{...saved.details,flow:'v0-bundle',creator:saved.creator,mint:saved.publicKey,fundingId:saved.fundingId});saved.review=result;await launchDraft('put','mainnet:'+saved.creator,saved);
-    if(current.current?.account.address!==saved.creator)return;setReview(result);setStage('review');setMessage('SOL is converted. Approve coin creation and the initial buy. Converted tokens stay in your wallet if you stop.');
+    const result=await api<Review>('/api/launch?action=prepare',{...saved.details,flow:'staged-v1',feeAllocationVersion:FEE_ALLOCATION_VERSION,creator:saved.creator,mint:saved.publicKey,fundingId:saved.fundingId});saved.review=result;await launchDraft('put','mainnet:'+saved.creator,saved);
+    if(current.current?.account.address!==saved.creator)return;setReview(result);setStage('review');setMessage('The earlier SOL conversion is finalized. Review setup, permanent creation and the optional buy separately. Converted tokens stay in your wallet if you stop.');
   }
   // Clears a dead signed attempt so the wallet can launch again. The mint key, any
   // finalized SOL conversion and the form details stay, so a retry never double-creates
@@ -399,6 +536,7 @@ export function useSolanaLaunch() {
         ? { id: saved.review!.id, wires: saved.bundleSigned.map(to64) }
         : { id: saved.review!.id, wire: to64(saved.signed!) },
     );
+    if(saved.review?.flow==="staged-v1" && await stagedResult(saved,r))return;
     if(r.status==="converted"&&r.funding){await converted(saved,r.funding);return;}
     if (r.status === "confirmed" && r.coin) {
       await launchDraft("delete", "mainnet:" + saved.creator);
@@ -410,7 +548,7 @@ export function useSolanaLaunch() {
       setMessage("Coin creation is finalized and its page is published.");
       return r.coin;
     }
-    if (DEAD.includes(r.status)) await retire(saved, r.status, r.created === true);
+    if (saved.review?.flow !== "staged-v1" && DEAD.includes(r.status)) await retire(saved, r.status, r.created === true);
     if (current.current?.account.address !== saved.creator) return;
     setStage(r.status);
     if (DEAD.includes(r.status)) setMessage(deadMessage(r.status, r.error));
@@ -437,8 +575,13 @@ export function useSolanaLaunch() {
       if (!isSigned(saved)) {
         if (Date.now() > saved.review.expiresAt)
           throw Error(
-            "This review expired. Edit the details and prepare a fresh review; no transaction was submitted.",
+            "This phase review expired. Refresh its review before approving; no new transaction was submitted.",
           );
+        if (saved.review.flow === "staged-v1") {
+          if (saved.phaseRetry) throw Error("Refresh this failed phase before approving its replacement.");
+          if (saved.completedPhases?.includes(saved.review.phase || "")) throw Error("This phase is finalized. Resume the next phase review.");
+          await signStaged(saved, connected);
+        } else {
         // Only v0 bundles land through Jito. Older single-transaction and v1 bundle reviews are
         // never signed again; signed ones keep their recovery path below.
         const bundle = saved.review;
@@ -477,6 +620,7 @@ export function useSolanaLaunch() {
         await launchDraft("put", key, saved);
         if (current.current?.account.address === owner)
           setSignature(saved.signature);
+        }
       }
       if (current.current?.account.address !== owner)
         throw Error(
@@ -496,11 +640,17 @@ export function useSolanaLaunch() {
     if (!connected || !review || !signature || busy || lock.current) return;
     const owner = connected.account.address;
     try {
+      lock.current = true;
       setBusy(true);
       const r = await api<LaunchStatus>(
         "/api/launch?action=status&id=" + review.id + "&signature=" + signature,
       );
-      if (DEAD.includes(r.status)) {
+      if (review.flow === "staged-v1") {
+        const saved = await launchDraft("get", "mainnet:" + owner) as Saved | undefined;
+        if (!saved || saved.signature !== signature) throw Error("Restore the original signing wallet to recover this phase.");
+        if (await stagedResult(saved,r,"status")) return;
+      }
+      if (review.flow !== "staged-v1" && DEAD.includes(r.status)) {
         const saved = (await launchDraft("get", "mainnet:" + owner)) as Saved | undefined;
         if (saved?.signature === signature) await retire(saved, r.status, r.created === true);
       }
@@ -523,6 +673,7 @@ export function useSolanaLaunch() {
       // 404: the server never stored this signed launch, so it never broadcast it.
       // After the review's deadline the server refuses to store it, so it is dead.
       if (
+        review.flow !== "staged-v1" &&
         (e as { status?: number }).status === 404 &&
         Date.now() > review.expiresAt + 120000
       ) {
@@ -537,6 +688,7 @@ export function useSolanaLaunch() {
       }
       setMessage((e as Error).message);
     } finally {
+      lock.current = false;
       setBusy(false);
     }
   }
@@ -547,13 +699,16 @@ export function useSolanaLaunch() {
     if (
       !signature ||
       !review ||
-      [...DEAD, "confirmed"].includes(stage)
+      (review.flow === "staged-v1" ? ["confirmed"] : [...DEAD, "confirmed"]).includes(stage)
     )
       return;
     const timer = setInterval(() => poll(), 6000);
     return () => clearInterval(timer);
   }, [signature, review, stage]);
   const edit = () => {
+    if (review?.flow === "staged-v1" && (detailsLocked || signature || (review.completedPhases?.length || 0) > 0 || ["phase-confirmed","retry-phase"].includes(stage))) {
+      setMessage("This launch has confirmed or signed phases. Resume its review; coin details are locked."); return;
+    }
     if (signature && !DEAD.includes(stage)) {
       setMessage(
         "This launch has a signed receipt. Resume the original transaction.",
@@ -587,7 +742,10 @@ export function useSolanaLaunch() {
     approve,
     check,
     edit,
-    ended: !!signature && DEAD.includes(stage),
+    ended: review?.flow !== "staged-v1" && !!signature && DEAD.includes(stage),
     confirmedCoin,
+    createdCoin,
+    detailsLocked,
+    finishWithoutBuy,
   };
 }

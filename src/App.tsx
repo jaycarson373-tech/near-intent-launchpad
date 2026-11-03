@@ -10,6 +10,7 @@ import {
   EMPTY_COIN,
   type Coin,
   type CoinDraft,
+  type Review,
 } from "./use-solana-launch";
 import { useRoute, coinPath } from "./navigation";
 import { Icon, IntentMark, IntentMesh } from "./icons";
@@ -29,6 +30,19 @@ const atoms = (raw: string, dec = 9) => {
   return (n / s).toString() + (f ? "." + f : "");
 };
 const short = (s: string) => s.slice(0, 6) + "…" + s.slice(-5);
+const phaseNames = {setup:"Account setup",create:"Coin creation & immutable fees",buy:"Atomic SOL conversion & initial buy"};
+function approvalLabel(review:Review) {
+  if(review.flow === "staged-v1") return phaseNames[review.phase as keyof typeof phaseNames] || "Launch phase";
+  if(review.bundle) return `One saved launch bundle · ${review.wires?.length} transactions`;
+  if(review.atomicSolBuy) return "SOL buy & launch";
+  return review.phase === "conversion" ? "Saved SOL conversion" : "Coin creation & initial buy";
+}
+function approvalNote(review:Review) {
+  if(review.flow === "staged-v1") return "Approve only this phase: " + approvalLabel(review) + ". Its estimated SOL debit is shown above. Setup rent remains in the created accounts if you stop. Creation and its fee assignment are permanent. The optional SOL conversion and buy execute atomically under a separate approval; canceling that buy keeps your coin live.";
+  if(review.bundle) return "This saved launch approves its transactions together and submits them as one Jito bundle.";
+  if(review.atomicSolBuy) return "This saved transaction converts SOL, creates your coin and makes the initial buy. Network fees can apply.";
+  return review.phase === "conversion" ? "This saved review converts SOL to NEAR. Coin creation requires a separate approval. Converted NEAR stays in your wallet if you stop." : "This saved transaction creates your coin and locks its reviewed fee recipient. Your wallet shows the initial buy, if set, plus rent and network fees.";
+}
 function initialDraft(): CoinDraft {
   try {
     return {
@@ -446,7 +460,7 @@ export default function App() {
                   [
                     "01",
                     "Buy with SOL.",
-                    "Enter your initial buy in SOL. The combined swap and launch are checked before a wallet approval. Keep SOL for rent and gas.",
+                    "Enter your initial buy in SOL. Setup, creation and the optional atomic swap and buy have separate wallet approvals. Keep SOL for rent and gas.",
                   ],
                   [
                     "02",
@@ -726,7 +740,7 @@ export default function App() {
                       />
                       <small>
                         0 skips the buy. Purchased coins go to your Solana
-                        wallet. Review the complete launch bundle together. Account rent, network fees and the disclosed relay tip are extra.
+                        wallet. Approve account setup, permanent coin creation and the optional atomic swap and buy separately. Account rent and network fees are extra. Setup rent remains if you stop; canceling the buy keeps your created coin live.
                       </small>
                     </label>
                     <button
@@ -757,6 +771,7 @@ export default function App() {
                 </form>
               ) : (
                 <div className="deployment-review">
+                  {launch.createdCoin && <div className="funding-note"><p>Your coin is live. <a className="text-link" href={coinPath(launch.createdCoin.mint)} onClick={e=>link(e,coinPath(launch.createdCoin!.mint))}>View coin</a> The optional buy is still separate.</p></div>}
                   <dl>
                     {[
                       [
@@ -768,10 +783,10 @@ export default function App() {
                       ["Creator fee", launch.review.creatorFeeBps / 100 + "%"],
                       [launch.review.feeTreasury?"Reward treasury":"Original fee recipient", launch.review.feeTreasury||launch.review.creator],
                       ["Initial buy", launch.review.devBuySolRaw!==undefined?atoms(launch.review.devBuySolRaw)+" SOL"+(launch.review.fundingId?" · converted":""):atoms(launch.review.devBuyRaw)+" NEAR · saved review"],
-                      ["Approval",launch.review.bundle?`One launch bundle · ${launch.review.wires?.length} transactions`:launch.review.atomicSolBuy?"SOL buy & launch":launch.review.phase==="conversion"?"Saved SOL conversion":"Coin creation & initial buy"],
+                      ["Approval",approvalLabel(launch.review)],
                       ...(launch.review.tipLamports?[["Relay tip",atoms(launch.review.tipLamports)+" SOL · included in total"]]:[]),
                       [
-                        "Estimated SOL debit",
+                        launch.review.flow === "staged-v1" ? "Estimated SOL debit · this phase" : "Estimated SOL debit",
                         atoms(launch.review.estimatedSolRaw) + " SOL",
                       ],
                       ["Token mint", launch.review.mint],
@@ -786,7 +801,7 @@ export default function App() {
                     <>
                       <div className="transaction-status">
                         <span className="status-dot" />
-                        {launch.stage === "failed"
+                        {launch.review.flow === "staged-v1" ? (launch.stage === "blocked" ? "Phase submission blocked" : "Tracking original signed phase") : launch.stage === "failed"
                           ? "Transaction failed"
                           : launch.stage === "blocked"
                             ? "Submission blocked"
@@ -834,31 +849,32 @@ export default function App() {
                       <div className="funding-note">
                         <Icon name="shield" />
                         <p>
-                          {launch.review.bundle?'Approve all '+(launch.review.wires?.length||3)+' transactions at once: account setup, coin creation, then fee lock with your initial buy. Sent only as one Jito bundle.':launch.review.atomicSolBuy?'This transaction converts SOL, creates your coin and makes the initial buy. Network fees can apply.':launch.review.phase==='conversion'?'This saved review converts SOL to NEAR. Coin creation requires a separate approval. Converted NEAR stays in your wallet if you stop.':'This transaction creates your coin and locks its reviewed fee recipient. Your wallet shows the initial buy, if set, plus rent and network fees.'}
+                          {approvalNote(launch.review)}
                         </p>
                       </div>
                       <button
                         className="button primary full"
                         disabled={launch.busy}
-                        onClick={() => now >= launch.review!.expiresAt ? void launch.refreshReview() : void launch.approve().then(onConfirmed)}
+                        onClick={() => ["phase-confirmed","retry-phase"].includes(launch.stage) || now >= launch.review!.expiresAt ? void launch.refreshReview() : void launch.approve().then(onConfirmed)}
                       >
                         {launch.busy
                           ? "Waiting for wallet…"
+                          : ["phase-confirmed","retry-phase"].includes(launch.stage)
+                            ? "Resume phase review"
                           : now >= launch.review.expiresAt
                             ? "Refresh launch review"
-                            : launch.review.bundle?"Approve launch bundle":launch.review.atomicSolBuy?"Approve SOL buy & launch":launch.review.phase==="conversion"?"Approve saved conversion":"Approve coin creation"}
+                            : launch.review.flow === "staged-v1" ? "Approve " + approvalLabel(launch.review).toLowerCase() : launch.review.bundle?"Approve launch bundle":launch.review.atomicSolBuy?"Approve SOL buy & launch":launch.review.phase==="conversion"?"Approve saved conversion":"Approve coin creation"}
                         <Icon name="wallet" />
                       </button>
                       <p className="review-expiry" role="status">{now >= launch.review.expiresAt ? "This unsigned review expired. Refresh it to keep the same coin details and mint, then review the updated costs." : `Review valid for ${Math.max(0,Math.ceil((launch.review.expiresAt-now)/1000))} seconds. Wallet approval is still required.`}</p>
-                      <button
+                      {launch.review.flow !== "staged-v1" || (!launch.detailsLocked && !(launch.review.completedPhases?.length) && !["phase-confirmed","retry-phase"].includes(launch.stage)) ? <button
                         className="button secondary full"
                         disabled={launch.busy}
                         onClick={launch.edit}
-                      >
-                        Edit coin details
-                      </button>
+                      >Edit coin details</button> : null}
                     </>
                   )}
+                  {launch.createdCoin && !launch.signature && <button className="button secondary full" disabled={launch.busy} onClick={()=>void launch.finishWithoutBuy()}>Finish without initial buy</button>}
                 </div>
               )}
               {launch.message && (
@@ -919,7 +935,7 @@ export default function App() {
                 ],
                 [
                   "Who receives the initial buy?",
-                  "Your connected Solana launching wallet. Enter the initial buy in SOL. Account setup with the SOL conversion, coin creation, and fee lock with the purchase are approved together and sent as one Jito bundle. Every transaction must confirm before the coin is published. Existing finalized conversions keep their recovery path. Network fees can apply; relay bundles also carry a small disclosed tip.",
+                  "Your connected Solana launching wallet. Enter the optional initial buy in SOL. Approve and confirm account setup, then permanent coin creation with immutable fees, then the optional atomic SOL conversion and buy. Each phase has its own wallet approval and network fees. Setup rent remains if you stop. The coin is published after creation finalizes and remains live if you cancel the buy. Existing signed launches keep their original recovery path.",
                 ],
                 [
                   "Is this an official NEAR or Pump.fun product?",
