@@ -1,25 +1,28 @@
 import {solConversion,walletTokenState,verifyConversionEffects} from '../lib/sol-dev-buy.mjs';
-import {blockedLaunchResult} from '../lib/launch-budget.mjs';
-import {buildLaunchBundle,simulateLaunchBundle,tipAccount,verifySignedBundle,jitoRequest,messageMatchesReceipt,bundleProgress} from '../lib/launch-bundle.mjs';
+import {compactTokenSetup,assertLaunchTraceBudget,assertTraceCount,innerInstructionCount,blockedLaunchResult} from '../lib/launch-budget.mjs';
+import {launchParts,launchMemo,buildBundle,compileBundleTx,assertV0Wires,logTraceCount,simulateLaunchBundle,messageMatchesReceipt,bundleProgress,ATA_CREATE_TRACE,BUY_TRACE} from '../lib/launch-bundle.mjs';
+import {launchLookupTable} from '../lib/lookup-table.mjs';
+import {jitoTipAccount,sendJitoBundle,jitoBundleStatus,JITO_TIP_LAMPORTS} from '../lib/jito.mjs';
 import {rewardReadiness,POLICY_HASH} from '../lib/reward-readiness.mjs';
 // PennyFun's reviewed creation/immutable-fee flow, adapted to the verified wNEAR quote.
 import { randomUUID, createHash } from "node:crypto";
-import BN from "bn.js";
-import { PublicKey, TransactionInstruction } from "@solana/web3.js";
+import { PublicKey } from "@solana/web3.js";
 import {
   unpackMint,
   unpackAccount,
   TOKEN_PROGRAM_ID,
   TOKEN_2022_PROGRAM_ID,
+  ASSOCIATED_TOKEN_PROGRAM_ID,
   getAssociatedTokenAddressSync,
 } from "@solana/spl-token";
 import {
   pump,
-  launchInstructions,
   verifyFeeAssignment,
   checkNetwork,
 } from "../lib/pump-adapter.mjs";
 import {
+  MAX_LAUNCH_BASE64,
+  compileLaunchV1,
   decodeLaunchTransaction,
   readLaunchReceipt,
 } from "../lib/launch-wire.mjs";
@@ -36,7 +39,7 @@ import {
   records,
   removePointer,
 } from "../lib/store.js";
-import { fail, origin, logSimulationFailure } from "../lib/http.js";
+import { fail, origin, logSimulationFailure, redact } from "../lib/http.js";
 import {
   validate,
   publicCoin,
@@ -85,58 +88,9 @@ export async function context(fee = 30, rpc = connection()) {
   };
 }
 export async function instructions(input, c) {
-  const { creator: user, mint } = input,
-    treasury = input.feeTreasury ? new PublicKey(input.feeTreasury) : user;
-  const ixs = await launchInstructions({
-    creator: user.toBase58(),
-    mint: mint.toBase58(),
-    treasury: treasury.toBase58(),
-    name: input.name,
-    symbol: input.symbol,
-    uri: input.uri,
-    quote: c.quote,
-  });
-  if (input.devBuyRaw > 0n) {
-    const curve = {
-      ...pump.newBondingCurve(
-        c.global,
-        new PublicKey(NEAR),
-        c.quoteControl,
-        new BN(input.creatorFeeBps),
-      ),
-      creator: pump.feeSharingConfigPda(mint),
-      isMayhemMode: false,
-    };
-    const amount = pump.getBuyV3TokenAmountFromQuoteAmount({
-      global: c.global,
-      feeConfig: c.feeConfig,
-      mintSupply: c.global.tokenTotalSupply,
-      bondingCurve: curve,
-      curveBaseTokenBalance: c.global.tokenTotalSupply,
-      amount: new BN(input.devBuyRaw.toString()),
-    });
-    if (amount.lten(0) || amount.gte(curve.realTokenReserves))
-      fail("The initial buy is too small or would graduate the market.");
-    ixs.push(
-      ...(await pump.PUMP_SDK.buyExactQuoteInV3Instructions({
-        mint,
-        user,
-        bondingCurve: curve,
-        associatedUserAccountInfo: null,
-        quoteAmount: new BN(input.devBuyRaw.toString()),
-        amount,
-        slippage: 1,
-        partialFill: false,
-        tokenProgram: TOKEN_2022_PROGRAM_ID,
-        quoteTokenProgram: new PublicKey(c.quote.tokenProgram),
-        buybackFeeRecipient: c.global.buybackFeeRecipients.find(
-          (k) => !k.equals(PublicKey.default),
-        ),
-      })),
-    );
-  }
+  const { setup, create, fees, buy } = await launchParts(input, c);
   const seen = new Set();
-  return ixs.filter((ix) => {
+  return [...setup, ...create, ...fees, ...buy].filter((ix) => {
     if (
       ix.programId.toBase58() !== "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
     )
@@ -158,10 +112,17 @@ export async function health() {
 async function healthCheck() {
   const missing = [];
   if (!configured()) missing.push("durable launch storage");
+  let rpc = null;
   try {
-    await context();
+    rpc = (await context()).rpc;
   } catch {
     missing.push("mainnet RPC or NEAR market configuration");
+  }
+  // v0 bundles need the owner's frozen lookup table (INTENT_LOOKUP_TABLE + INTENT_LOOKUP_TABLE_SHA256).
+  try {
+    await launchLookupTable(rpc || connection());
+  } catch {
+    missing.push("frozen launch lookup table");
   }
   const rewards=await rewardReadiness();missing.push(...rewards.missing);
   return {
@@ -182,7 +143,9 @@ async function draft(id) {
   if (!d) fail("This launch review could not be found.", 404);
   return d;
 }
-export async function prepare(raw) {
+export async function prepare(raw, deps = {}) {
+  // Older pages sign a single transaction or a v1 bundle (which never lands through Jito).
+  if (raw?.flow !== "v0-bundle") fail("Reload the page to use the updated launch flow.", 409);
   if (!configured())
     fail("Launch storage needs configuration before a wallet approval.", 503);
   const rewards=await rewardReadiness();if(!rewards.ready)fail("Holder rewards need their treasury and worker configured before a launch can lock its fee assignment.",503);
@@ -194,6 +157,9 @@ export async function prepare(raw) {
     fail(
       "This mint already exists. Recover the saved launch before preparing another.",
     );
+  const table = await launchLookupTable(rpc),
+    tipAccount = await (deps.jitoTipAccount || jitoTipAccount)(),
+    tipLamports = JITO_TIP_LAMPORTS;
   let funding=null, route=null, tracked=[];
   if(input.devBuySolRaw>0n){
     if(!raw.fundingId){
@@ -231,54 +197,198 @@ export async function prepare(raw) {
     devBuySolRaw: input.devBuySolRaw.toString(),
     quoteMint: NEAR,
     feeTreasury:rewards.treasury,rewardPolicyHash:POLICY_HASH,
-    phase:"launch",atomicSolBuy:!!route,fundingId:funding?.id||null,fundingSignature:funding?.signature||null,
+    phase:"launch",bundle:true,atomicSolBuy:!!route,fundingId:funding?.id||null,fundingSignature:funding?.signature||null,
     createdAt: new Date().toISOString(),
     expiresAt: Date.now() + 90000,
   };
-  let ixs = await instructions({ ...input, uri,feeTreasury:record.feeTreasury }, c);
-  ixs.push(
-    new TransactionInstruction({
-      programId: new PublicKey("MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr"),
-      keys: [],
-      data: Buffer.from(
-        "INTENTPAD:v1:" +
-          id +
-          ":" +
-          hash(
-            JSON.stringify({
-              mint: record.mint,
-              creator: record.creator,
-              quoteMint: NEAR,
-              creatorFeeBps: record.creatorFeeBps,feeTreasury:record.feeTreasury,rewardPolicyHash:POLICY_HASH,
-              devBuyRaw: record.devBuyRaw,devBuySolRaw:record.devBuySolRaw,
-            }),
-          ),
-      ),
-    }),
+  const parts = await launchParts({ ...input, uri, feeTreasury: record.feeTreasury }, c);
+  // New SOL buys never send a standalone swap: the conversion rides in the same atomic bundle.
+  // Existing finalized conversions keep their original recovery path and receipt.
+  const setup = await compactTokenSetup([...(route?.instructions||[]),...parts.setup],rpc),
+    launchSetup = await compactTokenSetup(parts.setup,rpc),
+    buy = await compactTokenSetup(parts.buy,rpc),
+    memo = launchMemo(id, record);
+  const latest = await rpc.getLatestBlockhashAndContext("confirmed"),
+    blockhash = latest.value.blockhash;
+  const bundle = buildBundle({ payer: creator, mint, blockhash, tables: [table], setup, create: parts.create, fees: parts.fees, buy, memo, tip: { account: tipAccount, lamports: tipLamports }, conversion: !!route });
+  const part = (role) => bundle.find((b) => b.role === role)?.tx;
+  const before = await rpc.getBalanceAndContext(creator, {
+    commitment: "confirmed",
+    minContextSlot: latest.context.slot,
+  });
+  const traces = {};
+  let setupDebit = 0n, lastSlot = before.context.slot;
+  {
+    // Setup (with its memo and any conversion) is independent of creation, so it is simulated
+    // exactly as it will be signed.
+    const trackedAddresses=route?[...new Set([...tracked.map(r=>r.address),getAssociatedTokenAddressSync(new PublicKey(NEAR),creator).toBase58()])]:[];
+    const simA = await rpc.simulateTransaction(part("setup"), {
+      sigVerify: false,
+      commitment: "confirmed",
+      minContextSlot: before.context.slot,
+      innerInstructions: true,
+      accounts: { encoding: "base64", addresses: [creator.toBase58(), ...trackedAddresses] },
+    });
+    if (simA.value.err !== null) logSimulationFailure("review", "setup", simA);
+    assertLaunchTraceBudget(part("setup"), simA);
+    const afterA = simA.value.accounts?.[0]?.lamports;
+    if (
+      simA.value.err !== null ||
+      simA.context.slot < before.context.slot ||
+      !Number.isSafeInteger(afterA) ||
+      afterA < 0 ||
+      afterA >= before.value
+    )
+      fail("Setup simulation did not pass. Check SOL for the initial buy, rent and network fees. No wallet approval was requested.");
+    // Standalone, the conversion must credit at least the buy amount without touching other assets.
+    if(route)verifyConversionEffects(tracked,new Map(trackedAddresses.map((a,i)=>[a,simA.value.accounts?.[i+1]])),{creator:creator.toBase58(),mint:mint.toBase58(),minimumRaw:record.devBuyRaw});
+    traces.setup = assertTraceCount(part("setup").message.compiledInstructions.length + innerInstructionCount(simA, part("setup").message.compiledInstructions.map((_, i) => i)));
+    setupDebit = BigInt(before.value - afterA);
+    lastSlot = Math.max(lastSlot, simA.context.slot);
+  }
+  // Creation and fee assignment need setup's accounts, so setup (without the conversion or memo),
+  // createV2 and the two fee-sharing instructions (without the tip or buy) are simulated together
+  // for the fee-assignment decode, rent and per-part traces. This combined message is never
+  // signed; v1 is used when it does not fit a v0 transaction.
+  const combinedIxs = [...launchSetup, ...parts.create, ...parts.fees];
+  let combined = compileBundleTx({ payer: creator, blockhash, instructions: combinedIxs, computeUnitLimit: 1400000, tables: [table] }), offset = 2;
+  try {
+    if (combined.serialize().length > 1232) throw Error();
+  } catch {
+    combined = compileLaunchV1({ payer: creator, latest: latest.value, instructions: combinedIxs, computeUnitLimit: 1400000 });
+    offset = 0;
+  }
+  const sim = await rpc.simulateTransaction(combined, {
+    sigVerify: false,
+    commitment: "confirmed",
+    minContextSlot: before.context.slot,
+    innerInstructions: true,
+    accounts: {
+      encoding: "base64",
+      addresses: [creator.toBase58(),pump.feeSharingConfigPda(mint).toBase58(),pump.bondingCurvePda(mint).toBase58()],
+    },
+  });
+  const after = sim.value.accounts?.[0]?.lamports;
+  if (sim.value.err !== null) logSimulationFailure("review", "launch", sim);
+  if (JSON.stringify(sim.value.err || "").includes("MaxInstructionTraceLengthExceeded"))
+    fail("Coin creation exceeds Solana’s instruction limit. No wallet approval was requested and no SOL was swapped.", 503);
+  if (
+    sim.value.err !== null ||
+    sim.context.slot < before.context.slot ||
+    !Number.isSafeInteger(after) ||
+    after < 0 ||
+    after >= before.value
+  )
+    fail(
+      "Creation simulation did not pass. Check SOL for the initial buy, rent and network fees. No wallet approval was requested.",
+    );
+  const createStart = offset + launchSetup.length,
+    feesStart = createStart + parts.create.length,
+    rows = (start, n) => Array.from({ length: n }, (_, i) => start + i),
+    buyAtas = buy.filter((ix) => ix.programId.equals(ASSOCIATED_TOKEN_PROGRAM_ID)).length;
+  // create = createV2 (+ its CPIs) + tip transfer.
+  traces.create = assertTraceCount(
+    part("create").message.compiledInstructions.length + innerInstructionCount(sim, rows(createStart, parts.create.length)),
   );
-  const latest=await rpc.getLatestBlockhashAndContext('confirmed');
-  const bundle=await buildLaunchBundle({rpc,payer:creator,mint,launch:ixs,route:route?.instructions||[],latest:latest.value,tip:await tipAccount()});
-  const nearAta=getAssociatedTokenAddressSync(new PublicKey(NEAR),creator).toBase58();
-  const boughtAta=getAssociatedTokenAddressSync(mint,creator,false,TOKEN_2022_PROGRAM_ID).toBase58();
-  record.bundle=true;record.wires=bundle.wires;record.creationIndex=bundle.creationIndex;
-  record.tradeIndex=input.devBuyRaw>0n?bundle.wires.length-1:null;
-  record.tipLamports=bundle.tipLamports;
-  record.simulationAddresses=[...new Set([creator.toBase58(),pump.feeSharingConfigPda(mint).toBase58(),pump.bondingCurvePda(mint).toBase58(),nearAta,boughtAta,...tracked.map(r=>r.address)])];
-  // Prove per-transaction space for wallet security checks, then simulate the
-  // exact reviewed messages sequentially against the same real mainnet bank.
-  await simulateLaunchBundle(rpc,bundle.capacityWires,record.simulationAddresses);
-  const sim=await simulateLaunchBundle(rpc,bundle.wires,record.simulationAddresses);
-  const debit=verifyBundleSimulation(record,sim);
-  const newSolInput=record.atomicSolBuy?input.devBuySolRaw:0n;
-  if(debit<newSolInput||debit>newSolInput+50000000n)
-    fail('The combined launch exceeds its bounded SOL purchase and creation budget. No payment was requested.');
-  const fresh=await rpc.getBalanceAndContext(creator,{commitment:'confirmed',minContextSlot:sim.slot});
-  if(fresh.value!==sim.before[0].lamports)fail('Your balance changed during review. Prepare a fresh launch.');
-  record.estimatedSolRaw=String(debit+500000n);
-  record.wire=bundle.wires[bundle.creationIndex];
-  record.lastValidBlockHeight=latest.value.lastValidBlockHeight;
-  record.expiresAt=Date.now()+Math.min(60000,Math.max(0,(latest.value.lastValidBlockHeight-(await rpc.getBlockHeight('confirmed'))-8)*400));
-  if(record.expiresAt-Date.now()<15000)fail('This launch review expired before approval. Prepare again.');
+  // fees = compute budget + both fee-sharing instructions (+ CPIs) + the unsimulated buy at its
+  // measured trace (ATA_CREATE_TRACE per new ATA, BUY_TRACE for the buy).
+  traces.fees = assertTraceCount(
+    part("fees").message.compiledInstructions.length - buy.length +
+      innerInstructionCount(sim, rows(feesStart, parts.fees.length)) +
+      buyAtas * ATA_CREATE_TRACE + (buy.length - buyAtas) * BUY_TRACE,
+  );
+  lastSlot = Math.max(lastSlot, sim.context.slot);
+  const sharesAccount = sim.value.accounts?.[1],
+    curveAccount = sim.value.accounts?.[2];
+  if (!sharesAccount || !curveAccount)
+    fail("The launch simulation did not return its fee records.");
+  const info = (a) => ({
+    ...a,
+    data: Buffer.from(a.data[0], "base64"),
+    owner: new PublicKey(a.owner),
+  });
+  const shares = pump.PUMP_SDK.decodeSharingConfig(info(sharesAccount)),
+    curve = pump.PUMP_SDK.decodeBondingCurve(info(curveAccount));
+  if (
+    shares.shareholders.length !== 1 ||
+    shares.shareholders[0].address.toBase58() !== record.feeTreasury ||
+    shares.shareholders[0].shareBps !== 10000 ||
+    pump.isSharingConfigEditable({ sharingConfig: shares }) ||
+    curve.quoteMint.toBase58() !== NEAR ||
+    curve.creatorFeeBps.toNumber() !== record.creatorFeeBps
+  )
+    fail("The simulated fee assignment differs from your launch review.");
+  // The exact v0 wires, simulated sequentially on one bank (bccc257's simulateBundle gate). This is
+  // the only simulation that runs the initial buy after its mint exists, so it also yields the real
+  // whole-bundle SOL debit and, when logs are complete, a measured trace per part.
+  const wires = assertV0Wires(bundle.map((b) => Buffer.from(b.tx.serialize()).toString("base64")));
+  record.simulationAddresses = [...new Set([
+    creator.toBase58(),
+    pump.feeSharingConfigPda(mint).toBase58(),
+    pump.bondingCurvePda(mint).toBase58(),
+    getAssociatedTokenAddressSync(new PublicKey(NEAR), creator).toBase58(),
+    getAssociatedTokenAddressSync(mint, creator, false, TOKEN_2022_PROGRAM_ID).toBase58(),
+    ...tracked.map((r) => r.address),
+  ])];
+  const whole = await (deps.simulateLaunchBundle || simulateLaunchBundle)(rpc, wires, record.simulationAddresses);
+  const bundleDebit = verifyBundleSimulation(record, whole);
+  whole.results.forEach((r, i) => {
+    const measured = logTraceCount(r.logs);
+    if (measured !== null) traces[bundle[i].role] = Math.max(traces[bundle[i].role], assertTraceCount(measured));
+  });
+  const newSolInput = record.atomicSolBuy ? input.devBuySolRaw : 0n;
+  if (bundleDebit < newSolInput || bundleDebit > newSolInput + 50000000n)
+    fail("The combined launch exceeds its bounded SOL purchase and creation budget. No payment was requested.");
+  lastSlot = Math.max(lastSlot, whole.slot);
+  const fresh = await rpc.getBalanceAndContext(creator, {
+    commitment: "confirmed",
+    minContextSlot: lastSlot,
+  });
+  if (fresh.value !== before.value || whole.before[0]?.lamports !== before.value)
+    fail("Your balance changed during review. Prepare a fresh transaction.");
+  const fees = await Promise.all(bundle.map(async (b) => (await rpc.getFeeForMessage(b.tx.message, "confirmed")).value));
+  if (fees.some((f) => !Number.isSafeInteger(f) || f < 0))
+    fail("The network fee could not be verified.");
+  const rent165 = await rpc.getMinimumBalanceForRentExemption(165, "confirmed");
+  if (!Number.isSafeInteger(rent165) || rent165 <= 0) fail("Account rent could not be verified.", 503);
+  const rent = (size) => BigInt(Math.ceil((rent165 * (128 + size)) / 293)),
+    ataRent = (ix, t22Size) => (ix.keys[5].pubkey.equals(TOKEN_2022_PROGRAM_ID) ? rent(t22Size) : BigInt(rent165));
+  // Both simulations paid setup's ATA rent; the bundle pays it once. The unsimulated buy gets a
+  // conservative allowance: its ATAs plus the buyer's Pump volume-accumulator account.
+  const overlap = launchSetup.reduce((n, ix) => n + ataRent(ix, 170), 0n),
+    buyAllowance = buy.length ? buy.filter((ix) => ix.programId.equals(ASSOCIATED_TOKEN_PROGRAM_ID)).reduce((n, ix) => n + ataRent(ix, 200), 0n) + rent(256) : 0n,
+    feeTotal = fees.reduce((n, f) => n + f, 0);
+  // Budget: the larger of the per-part estimate and the whole-bundle simulated debit plus headroom.
+  const partEstimate = setupDebit + BigInt(before.value - after) - overlap + buyAllowance + tipLamports + BigInt(Math.max(500000, feeTotal)),
+    bundleEstimate = bundleDebit + 500000n;
+  record.estimatedSolRaw = String(partEstimate > bundleEstimate ? partEstimate : bundleEstimate);
+  record.layout = "v0-alt";
+  record.roles = bundle.map((b) => b.role);
+  record.creationIndex = record.roles.indexOf("create");
+  record.wires = wires;
+  record.messageHashes = bundle.map((b) => hash(b.tx.message.serialize()));
+  record.instructionCounts = bundle.map((b) => b.tx.message.compiledInstructions.length);
+  // Per-part traces: the per-transaction simulations (the buy at measured constants), raised to the
+  // whole-bundle log count when the logs were complete.
+  record.traces = bundle.map((b) => traces[b.role]);
+  record.tipLamports = String(tipLamports);
+  record.tipAccount = tipAccount;
+  record.lookupTable = table.key.toBase58();
+  record.lastValidBlockHeight = latest.value.lastValidBlockHeight;
+  record.expiresAt =
+    Date.now() +
+    Math.min(
+      60000,
+      Math.max(
+        0,
+        (latest.value.lastValidBlockHeight -
+          (await rpc.getBlockHeight("confirmed")) -
+          8) *
+          400,
+      ),
+    );
+  if (record.expiresAt - Date.now() < 15000)
+    fail("This transaction review expired. Retry before approving.");
   await create("drafts/" + id + ".json", record);
   const published = await fetch(uri, {
     signal: AbortSignal.timeout(12000),
@@ -313,12 +423,16 @@ export async function prepare(raw) {
     );
   return {
     id,phase:"launch",atomicSolBuy:record.atomicSolBuy,fundingId:record.fundingId,
-    bundle:true,wires:record.wires,creationIndex:record.creationIndex,tipLamports:record.tipLamports,
     mint: record.mint,
-    wire: record.wire,
+    bundle: true,
+    layout: record.layout,
+    roles: record.roles,
+    wires: record.wires,
+    creationIndex: record.creationIndex,
     expiresAt: record.expiresAt,
     lastValidBlockHeight: record.lastValidBlockHeight,
     estimatedSolRaw: record.estimatedSolRaw,
+    tipLamports: record.tipLamports,
     devBuyRaw: record.devBuyRaw,devBuySolRaw:record.devBuySolRaw,
     creatorFeeBps: record.creatorFeeBps,
     name: record.name,
@@ -335,6 +449,8 @@ function decodedAccount(a){
   if(!a||!Array.isArray(a.data)||a.data[1]!=='base64')fail('The bundle account data could not be verified.',503);
   return {...a,owner:new PublicKey(a.owner),data:Buffer.from(a.data[0],'base64')};
 }
+// Whole-bundle simulation effects (bccc257): immutable 100% fee assignment, the initial buy credited
+// to the creator, no other wallet asset reduced. Returns the SOL debit across the bundle.
 export function verifyBundleSimulation(d,sim){
   const initial=sim.before[0]?.lamports,final=sim.after[0]?.lamports;
   if(!Number.isSafeInteger(initial)||!Number.isSafeInteger(final)||final<0||final>=initial)
@@ -357,19 +473,386 @@ export function verifyBundleSimulation(d,sim){
       const state=unpackAccount(address,account,account.owner);
       if(state.owner.toBase58()===d.creator)rows.push({address:address.toBase58(),program:account.owner,state});
     }
-    verifyConversionEffects(rows,new Map(d.simulationAddresses.map((a,i)=>[a,sim.after[i]])),{creator:d.creator,mint:d.mint,minimumRaw:'0',atomicBuy:true});
+    try{verifyConversionEffects(rows,new Map(d.simulationAddresses.map((a,i)=>[a,sim.after[i]])),{creator:d.creator,mint:d.mint,minimumRaw:'0',atomicBuy:true});}
+    catch(e){if(e?.safe)throw e;fail(e.message);}
   }
   return BigInt(initial-final);
 }
-export async function submit(input) {
+const STALE_V1 = "This launch review used a transaction format that cannot land. Prepare a fresh review; nothing was submitted.";
+export async function submit(input, deps = {}) {
   const d = await draft(input.id);
-  if(d.bundle){
-    const approved=verifySignedBundle(d,input.wires);
-    const prior=await read('signed/'+d.id+'.json');
-    if(!prior&&Date.now()>d.expiresAt)fail('This launch review expired. Nothing was submitted.');
-    const saved=await createOnce('signed/'+d.id+'.json',{id:d.id,...approved,createdAt:Date.now()},(a,b)=>a.signatures?.join()===b.signatures.join());
-    await indexPending(saved);return status(d.id,saved.signature,true);
+  if (!d.bundle) return legacySubmit(d, input);
+  // v1 bundles (prepared before v0) never land through Jito: never save or send new signatures.
+  if (!Array.isArray(d.roles)) {
+    const prior = await read("signed/" + d.id + ".json");
+    if (!prior) fail(STALE_V1, 409);
+    return status(d.id, prior.signature, false, deps);
   }
+  if (!Array.isArray(input.wires))
+    fail("Reload the page to use the updated launch flow.", 409);
+  if (
+    input.wires.length !== d.wires.length ||
+    input.wires.some((w) => typeof w !== "string" || !w || w.length > MAX_LAUNCH_BASE64)
+  )
+    fail("The signed launch bundle is invalid.");
+  assertV0Wires(input.wires);
+  const signatures = input.wires.map((wire, i) => {
+    try {
+      const bytes = Buffer.from(wire, "base64");
+      walletSignedLaunchMatches(Buffer.from(d.wires[i], "base64"), bytes);
+      return cloutPaymentSignature(bytes);
+    } catch {
+      return fail(
+        "The wallet returned an altered or incomplete transaction. Nothing was submitted.",
+      );
+    }
+  });
+  // Coin creation's signature identifies the launch, as the single transaction's did.
+  const signature = signatures[d.roles.indexOf("create")],
+    same = (a, b) => a.signature === b.signature && a.signatures?.join() === b.signatures?.join();
+  const saved = await read("signed/" + d.id + ".json");
+  if (saved) {
+    if (!same(saved, { signature, signatures }))
+      fail(
+        "A different transaction is already saved. Check the original receipt.",
+      );
+    await indexPending(saved);
+    return status(d.id, signature, true, deps);
+  }
+  if (Date.now() > d.expiresAt)
+    fail("This review expired. No signed transaction was submitted.");
+  // Persist before anything is sent: a resend only ever uses these exact bytes.
+  const signed = await createOnce(
+    "signed/" + d.id + ".json",
+    { id: d.id, bundle: true, signature, signatures, roles: d.roles, wires: input.wires, createdAt: Date.now() },
+    same,
+  );
+  await indexPending(signed);
+  return status(d.id, signature, true, deps);
+}
+export async function status(id, signature, broadcast = false, deps = {}) {
+  const d = await draft(id),
+    saved = await read("signed/" + id + ".json");
+  if (!saved || saved.signature !== signature)
+    fail("No matching signed launch is saved.", 404);
+  if (d.bundle && Array.isArray(d.roles)) return bundleStatus(d, saved, broadcast, deps);
+  if (d.bundle) return legacyBundleStatus(d, saved, deps);
+  // Pre-bundle single-transaction drafts are v1: track them on chain, never broadcast them.
+  return legacyStatus(d, saved, signature, false);
+}
+export const RESEND_MS = 2000;
+const lastSends = new Map();
+const TRACE_BLOCKED = "The signed launch exceeds Solana’s instruction limit after wallet security checks. Submission was blocked; your original receipt is preserved.";
+function bundleIo(deps) {
+  return {
+    rpc: deps.rpc || connection(),
+    verifySimulation: deps.verifySimulation || verifyBundleSimulation,
+    checkNetwork: deps.checkNetwork || ((rpc) => checkNetwork(rpc, "mainnet")),
+    read: deps.read || read,
+    create: deps.create || create,
+    createOnce: deps.createOnce || createOnce,
+    removePointer: deps.removePointer || removePointer,
+    sendBundle: deps.sendJitoBundle || sendJitoBundle,
+    // Diagnostic only; injected senders (tests) get no live status lookups.
+    bundleState: deps.bundleState || (deps.sendJitoBundle ? null : jitoBundleStatus),
+    simulateBundle: deps.simulateLaunchBundle || simulateLaunchBundle,
+    now: deps.now || Date.now,
+  };
+}
+/**
+ * Bundle outcome from chain state only. Height is read before signatures so "none seen" past
+ * lastValidBlockHeight proves nothing can still land. Terminal answers need finalized rows.
+ */
+export async function bundleStatus(d, saved, broadcast = false, deps = {}) {
+  const io = bundleIo(deps),
+    { signature } = saved,
+    mint = d.mint,
+    unpend = async () => {
+      try {
+        await io.removePointer(pendingKey(saved));
+      } catch {
+        /* The signed outbox and outcome records remain; cleanup retries on the next read. */
+      }
+    };
+  const existing = await io.read("receipts/" + d.mint + ".json");
+  if (existing) {
+    if (existing.signature !== signature)
+      fail("The mint has another confirmed launch record.");
+    await unpend();
+    return { status: "confirmed", coin: publicCoin(existing) };
+  }
+  const recorded = await io.read("partials/" + d.id + ".json");
+  if (recorded) {
+    if (recorded.signature !== signature) fail("The launch has another recorded outcome.");
+    await unpend();
+    return partialResult(d, recorded);
+  }
+  const slot = await io.rpc.getSlot("finalized"),
+    height = await io.rpc.getBlockHeight({ commitment: "finalized", minContextSlot: slot }),
+    found = await io.rpc.getSignatureStatuses(saved.signatures, { searchTransactionHistory: true });
+  const rows = found?.value;
+  if (!(found?.context?.slot >= slot) || !Array.isArray(rows) || rows.length !== saved.signatures.length)
+    return { status: "checking", signature, mint };
+  const create = saved.roles.indexOf("create"),
+    past = height > d.lastValidBlockHeight,
+    final = (r) => r?.confirmationStatus === "finalized";
+  if (rows[create]?.err && final(rows[create])) {
+    await unpend();
+    return {
+      status: "failed",
+      signature,
+      mint,
+      error: "Coin creation failed onchain, so no coin was created. Any converted NEAR stays in your wallet.",
+    };
+  }
+  if (rows.every((r) => r && r.err === null && final(r))) return confirmBundle(d, saved, io, unpend);
+  if (rows.some(Boolean)) {
+    // Part of the bundle is visible. Bundles are all-or-nothing, so a settled mix means a
+    // transaction landed outside its bundle: record it, never re-sign, reconcile by hand.
+    if (rows.every((r) => (r ? final(r) : past))) {
+      const outcome = await io.createOnce(
+        "partials/" + d.id + ".json",
+        {
+          id: d.id,
+          signature,
+          signatures: saved.signatures,
+          roles: saved.roles,
+          states: rows.map((r) => (!r ? "missing" : r.err ? "failed" : "landed")),
+          created: rows[create]?.err === null,
+          recordedAt: io.now(),
+        },
+        (a, b) => a.signature === b.signature,
+      );
+      await unpend();
+      return partialResult(d, outcome);
+    }
+    return { status: "confirming", signature, mint };
+  }
+  if (past) {
+    await unpend();
+    return {
+      status: "expired",
+      signature,
+      mint,
+      error: "Expired before landing, so nothing was charged. Start a new launch to retry.",
+    };
+  }
+  const attempted = await io.read("broadcasts/" + d.id + ".json");
+  if (!attempted) {
+    if (!broadcast) {
+      const rejected = await io.read("submission-checks/" + d.id + ".json");
+      if (rejected?.signature === signature) return blockedLaunchResult(d, signature, rejected.error);
+      return { status: "checking", signature, mint };
+    }
+    await io.checkNetwork(io.rpc);
+    const blocked = await preflightBundle(d, saved, io);
+    if (blocked) return recordBlocked(d, saved, blocked, io.createOnce);
+    await io.createOnce(
+      "broadcasts/" + d.id + ".json",
+      { id: d.id, signature, attemptedAt: io.now() },
+      (a, b) => a.signature === b.signature,
+    );
+  }
+  return resendBundle(d, saved, io);
+}
+// A partial launch is never published: a coin created without its fee transaction has no locked
+// fee assignment and needs manual reconciliation.
+function partialResult(d, outcome) {
+  const fees = outcome.states?.[outcome.roles?.indexOf("fees")];
+  return {
+    status: "partial",
+    signature: outcome.signature,
+    signatures: outcome.signatures,
+    mint: d.mint,
+    created: outcome.created === true,
+    feesLanded: fees === "landed",
+    error: !outcome.created
+      ? "Part of the launch landed without coin creation. No coin was created; converted NEAR stays in your wallet."
+      : fees !== "landed"
+        ? "Your coin was created without its fee setup, so it is not listed. Keep this receipt; nothing will be re-signed."
+        : "Your coin was created, but part of the launch did not land. Keep this receipt; nothing will be re-signed.",
+  };
+}
+// Checks the signed bytes before the first send. Only the first bundle transaction can run
+// alone; the others are protected by bundle atomicity and their exact reviewed construction.
+async function preflightBundle(d, saved, io) {
+  try {
+    assertV0Wires(saved.wires);
+  } catch {
+    return "The saved launch is not a v0 bundle and can never land. Nothing was broadcast.";
+  }
+  const txs = saved.wires.map((w) => decodeLaunchTransaction(Buffer.from(w, "base64")));
+  for (let i = 0; i < txs.length; i++) {
+    const added = txs[i].message.compiledInstructions.length - d.instructionCounts[i];
+    if (!Number.isSafeInteger(d.traces?.[i]) || d.traces[i] + added > 64) return TRACE_BLOCKED;
+    const fee = (await io.rpc.getFeeForMessage(txs[i].message, "confirmed")).value;
+    if (!Number.isSafeInteger(fee) || fee > 500000)
+      return "The wallet changed the network fee beyond the reviewed limit. Nothing was broadcast.";
+  }
+  // The exact signed bundle, sequentially and with signature checks: a standalone simulation of a
+  // later part cannot see the accounts and mint the earlier parts create.
+  if (!Array.isArray(d.simulationAddresses) || !d.simulationAddresses.length)
+    return "The saved launch review is incomplete. Nothing was broadcast; your original receipt is preserved.";
+  let sim;
+  try {
+    sim = await io.simulateBundle(io.rpc, saved.wires, d.simulationAddresses, { signed: true });
+  } catch (error) {
+    if (!error?.safe) throw error;
+    return /instruction limit/.test(error.message)
+      ? TRACE_BLOCKED
+      : "The signed launch no longer passes simulation. Submission was blocked; your original receipt is preserved.";
+  }
+  for (const r of sim.results) {
+    const measured = logTraceCount(r.logs);
+    if (measured !== null && measured > 64) return TRACE_BLOCKED;
+  }
+  // Same checks as the review on the exact signed bundle: SOL debit, immutable 100% fee assignment,
+  // NEAR quote, creator fee, buy delivered, no other wallet asset decreased.
+  let debit;
+  try {
+    debit = io.verifySimulation(d, sim);
+  } catch (error) {
+    if (!error?.safe) throw error;
+    return error.message + " Submission was blocked; your original receipt is preserved.";
+  }
+  if (debit > BigInt(d.estimatedSolRaw))
+    return "The signed launch exceeds its reviewed SOL budget. The original receipt is preserved.";
+  return null;
+}
+// Resends the identical signed bundle at most once per RESEND_MS per draft, across instances:
+// a create-only claim per time window plus the previous window's claim time.
+async function resendBundle(d, saved, io) {
+  const now = io.now(),
+    bucket = Math.floor(now / RESEND_MS),
+    result = { status: "submitted", signature: saved.signature, mint: d.mint },
+    last = lastSends.get(d.id);
+  if (last !== undefined && now - last < RESEND_MS) return result;
+  const prior = await io.read("jito/" + d.id + "-" + (bucket - 1) + ".json");
+  if (prior && now - prior.claimedAt < RESEND_MS) return result;
+  try {
+    await io.create("jito/" + d.id + "-" + bucket + ".json", { id: d.id, signature: saved.signature, claimedAt: now });
+  } catch {
+    return result;
+  }
+  if (lastSends.size > 1000) lastSends.clear();
+  lastSends.set(d.id, now);
+  try {
+    const bundleId = await io.sendBundle(saved.wires);
+    try {
+      await io.create("jito/" + d.id + "-" + bucket + "-sent.json", { id: d.id, bundleId, sentAt: io.now() });
+    } catch {
+      /* The bundle id is diagnostic only; signatures remain the source of truth. */
+    }
+    if (io.bundleState) {
+      // Jito keeps in-flight status for 5 minutes only; log its verdict so a bundle that never
+      // lands explains itself (Pending = still in auction, Failed/Invalid = rejected).
+      try {
+        const state = await io.bundleState(bundleId);
+        console.log(JSON.stringify({ service: "intent-pad-api", jito: "bundle", id: d.id, bundleId, state: state.state, slot: state.slot ?? null, tipLamports: String(d.tipLamports ?? "") }));
+      } catch {
+        /* diagnostic only */
+      }
+    }
+    return { ...result, bundleId };
+  } catch (error) {
+    // Rate limits and engine rejections are not failures: identical bytes are resent until
+    // the blockhash expires, and a bundle that never lands charges nothing.
+    console.error(
+      JSON.stringify({
+        service: "intent-pad-api",
+        jitoSend: error?.retryable ? "retryable" : "rejected",
+        id: d.id,
+        detail: redact(error?.detail || error?.message),
+      }),
+    );
+    return result;
+  }
+}
+async function confirmBundle(d, saved, io, unpend) {
+  const txs = await Promise.all(saved.signatures.map((s) => readLaunchReceipt(io.rpc, s)));
+  txs.forEach((tx, i) => {
+    if (!tx?.meta || tx.meta.err !== null)
+      fail("Finalized receipt indexing is delayed. Keep this signature.");
+    const approved = Buffer.from(decodeLaunchTransaction(Buffer.from(saved.wires[i], "base64")).message.serialize());
+    if (!approved.equals(Buffer.from(tx.transaction.message.serialize())))
+      fail("The finalized receipt differs from the approved launch.");
+  });
+  await verifyFeeAssignment(io.rpc, d.mint, d.feeTreasury||d.creator, NEAR, d.creatorFeeBps);
+  const mint = await io.rpc.getAccountInfo(new PublicKey(d.mint), "finalized");
+  if (!mint || !mint.owner.equals(TOKEN_2022_PROGRAM_ID))
+    fail("The launched token mint could not be verified.");
+  const state = unpackMint(new PublicKey(d.mint), mint, TOKEN_2022_PROGRAM_ID);
+  if (state.decimals !== 6 || state.freezeAuthority !== null)
+    fail("The launched mint differs from the supported token standard.");
+  const receipt = (role) => txs[saved.roles.indexOf(role)] || fail("The launch receipt is missing a reviewed transaction.");
+  if (d.atomicSolBuy) verifyConversionReceipt(receipt("setup"), d);
+  if (BigInt(d.devBuyRaw) > 0n) verifyBuyReceipt(receipt("fees"), d);
+  // The actual SOL debit across every receipt must stay within the reviewed total (bccc257).
+  let total = 0n;
+  for (const tx of txs) {
+    const before = tx.meta.preBalances?.[0], after = tx.meta.postBalances?.[0];
+    if (!Number.isSafeInteger(before) || !Number.isSafeInteger(after) || before < 0 || after < 0)
+      fail("The finalized bundle SOL debits could not be reconciled.");
+    total += BigInt(before) - BigInt(after);
+  }
+  if (total <= 0n || total > BigInt(d.estimatedSolRaw))
+    fail("The finalized bundle exceeds its reviewed total SOL budget. Keep the original receipts for reconciliation.");
+  const coin = {
+    ...d,
+    signature: saved.signature,
+    signatures: saved.signatures,
+    settlementSignatures: saved.signatures,
+    solDebitedRaw: String(total),
+    settlementSlots: txs.map((tx) => tx.slot),
+    verifiedAt: new Date().toISOString(),
+    supply: state.supply.toString(),
+    decimals: state.decimals,
+  };
+  delete coin.wire;
+  delete coin.wires;
+  delete coin.image;
+  delete coin.simulationAddresses;
+  await io.createOnce(
+    "receipts/" + d.mint + ".json",
+    coin,
+    (a, b) => a.signature === b.signature,
+  );
+  await unpend();
+  return { status: "confirmed", coin: publicCoin(coin) };
+}
+// The bundle buy may spend at most the reviewed NEAR and must credit the new mint to the
+// launching wallet's canonical Token-2022 account; no other wallet token may decrease.
+export function verifyBuyReceipt(tx, d) {
+  const keys = tx.transaction.message.getAccountKeys({ accountKeysFromLookups: tx.meta.loadedAddresses }),
+    ata = getAssociatedTokenAddressSync(new PublicKey(d.mint), new PublicKey(d.creator), false, TOKEN_2022_PROGRAM_ID).toBase58(),
+    near = getAssociatedTokenAddressSync(new PublicKey(NEAR), new PublicKey(d.creator)).toBase58();
+  if (keys.get(0)?.toBase58() !== d.creator) fail("The initial buy receipt has another fee payer.");
+  const before = new Map((tx.meta.preTokenBalances || []).map((r) => [r.accountIndex, r])),
+    after = new Map((tx.meta.postTokenBalances || []).map((r) => [r.accountIndex, r]));
+  let bought = 0n;
+  for (const index of new Set([...before.keys(), ...after.keys()])) {
+    const a = before.get(index), b = after.get(index);
+    if (a?.owner !== d.creator && b?.owner !== d.creator) continue;
+    if (a && b && (a.owner !== b.owner || a.mint !== b.mint || a.programId !== b.programId))
+      fail("The initial buy receipt changed token ownership.");
+    const delta = BigInt(b?.uiTokenAmount.amount || "0") - BigInt(a?.uiTokenAmount.amount || "0"),
+      key = keys.get(index)?.toBase58();
+    if (key === ata) {
+      if (b?.mint !== d.mint || b.owner !== d.creator || b.programId !== TOKEN_2022_PROGRAM_ID.toBase58())
+        fail("The initial buy receipt has an invalid destination.");
+      bought += delta;
+    } else if (key === near) {
+      if (delta < -BigInt(d.devBuyRaw)) fail("The initial buy spent more NEAR than reviewed.");
+    } else if (delta < 0n) fail("The initial buy consumed another wallet token.");
+  }
+  if (bought <= 0n)
+    fail("The initial buy receipt did not credit the launching wallet.");
+  return String(bought);
+}
+// Single-transaction drafts saved before bundles keep their original submission path.
+async function legacySubmit(d, input) {
+  // Never store (and so never send) a new v1 single transaction; already-saved ones are only tracked.
+  if (!(await read("signed/" + d.id + ".json"))) fail(STALE_V1, 409);
   if (typeof input.wire !== "string" || input.wire.length > 5500)
     fail("The signed transaction is invalid.");
   const bytes = Buffer.from(input.wire, "base64");
@@ -400,12 +883,9 @@ export async function submit(input) {
   await indexPending(signed);
   return status(d.id, signature, true);
 }
-export async function status(id, signature, broadcast = false) {
-  const d = await draft(id),
-    saved = await read("signed/" + id + ".json");
-  if (!saved || saved.signature !== signature)
-    fail("No matching signed launch is saved.", 404);
-  const rpc = connection();
+// Single-transaction and standalone-conversion drafts keep their original recovery path.
+async function legacyStatus(d, saved, signature, broadcast) {
+  const id = d.id, rpc = connection();
   if(d.phase==='conversion'){const funded=await read('funding/'+d.id+'.json');if(funded){if(funded.signature!==signature)fail('The conversion has another confirmed receipt.');await removePending(saved);return {status:'converted',funding:{id:d.id,signature,nearRaw:funded.receivedRaw}};}}
   const existing = d.phase==='conversion'?null:await read("receipts/" + d.mint + ".json");
   if (existing) {
@@ -414,7 +894,6 @@ export async function status(id, signature, broadcast = false) {
     await removePending(saved);
     return { status: "confirmed", coin: publicCoin(existing) };
   }
-  if(d.bundle)return bundleStatus(d,saved,broadcast);
   const chain = (
     await rpc.getSignatureStatuses([signature], {
       searchTransactionHistory: true,
@@ -446,9 +925,8 @@ export async function status(id, signature, broadcast = false) {
     if(d.phase==='conversion'){
       const receivedRaw=verifyConversionReceipt(tx,d),funded={id:d.id,creator:d.creator,mint:d.mint,devBuySolRaw:d.devBuySolRaw,devBuyRaw:d.devBuyRaw,receivedRaw,feeTreasury:d.feeTreasury,signature,verifiedAt:new Date().toISOString()};await createOnce('funding/'+d.id+'.json',funded,(a,b)=>a.signature===b.signature);await removePending(saved);return {status:'converted',funding:{id:d.id,signature,nearRaw:receivedRaw}};
     }
-    return finalizeLaunch(d,saved,tx);
+    return finalizeLaunch(d, saved, tx);
   }
-
   if (chain) return { status: "confirming", signature, mint: d.mint };
   if ((await rpc.getBlockHeight("finalized")) > d.lastValidBlockHeight) {
     await removePending(saved);
@@ -508,6 +986,7 @@ export async function status(id, signature, broadcast = false) {
   }
   return { status: "submitted", signature, mint: d.mint };
 }
+// Publication for single-transaction drafts and the v1 bundles below (bccc257).
 async function finalizeLaunch(d,saved,buyReceipt){
   const rpc=connection(),signature=saved.signature;
   await verifyFeeAssignment(rpc,d.mint,d.feeTreasury||d.creator,NEAR,d.creatorFeeBps);
@@ -521,12 +1000,20 @@ async function finalizeLaunch(d,saved,buyReceipt){
   await createOnce('receipts/'+d.mint+'.json',coin,(a,b)=>a.signature===b.signature);
   await removePending(saved);return {status:'confirmed',coin:publicCoin(coin)};
 }
-async function bundleStatus(d,saved,broadcast){
+// v1 bundles prepared between bccc257 and the v0 fix. Jito never lands a v1 bundle, so these are
+// only reconciled from chain state and are never sent again. Their original signatures are kept.
+export async function legacyBundleStatus(d,saved,deps={}){
+  const io=bundleIo(deps),rpc=io.rpc,unpend=async()=>{try{await io.removePointer(pendingKey(saved));}catch{/* retried on the next read */}};
+  const existing=await io.read('receipts/'+d.mint+'.json');
+  if(existing){
+    if(existing.signature!==saved.signature)fail('The mint has another confirmed launch record.');
+    await unpend();return {status:'confirmed',coin:publicCoin(existing)};
+  }
   if(!Array.isArray(saved.wires)||!Array.isArray(saved.signatures)||saved.wires.length!==d.wires.length||saved.signatures.length!==d.wires.length)fail('The saved bundle is incomplete. Keep the original review.');
-  const rpc=connection();
-  if(broadcast)await checkNetwork(rpc,'mainnet');
+  // Height first: "nothing seen" after it passed lastValidBlockHeight proves nothing can still land.
+  const height=await rpc.getBlockHeight('finalized');
   const states=(await rpc.getSignatureStatuses(saved.signatures,{searchTransactionHistory:true})).value;
-  if(states.length!==saved.signatures.length)fail('The bundle signature lookup was incomplete.',503);
+  if(!Array.isArray(states)||states.length!==saved.signatures.length)fail('The bundle signature lookup was incomplete.',503);
   if(states.every(s=>s?.confirmationStatus==='finalized'&&!s.err)){
     const receipts=await Promise.all(saved.signatures.map(signature=>readLaunchReceipt(rpc,signature)));
     if(receipts.some((tx,i)=>!tx?.meta||tx.meta.err||!messageMatchesReceipt(saved.wires[i],tx)))fail('The full finalized bundle receipt is not yet verified. Keep checking the original launch.');
@@ -539,32 +1026,15 @@ async function bundleStatus(d,saved,broadcast){
     if(total<=0n||total>BigInt(d.estimatedSolRaw))fail('The finalized bundle exceeds its reviewed total SOL budget. Keep the original receipts for reconciliation.');
     return finalizeLaunch({...d,solDebitedRaw:String(total),settlementSlots:receipts.map(tx=>tx.slot)},saved,receipts[d.tradeIndex??d.creationIndex]);
   }
-  const expired=(await rpc.getBlockHeight('finalized'))>d.lastValidBlockHeight;
+  const expired=height>d.lastValidBlockHeight;
   const mintExists=expired?!!await rpc.getAccountInfo(new PublicKey(d.mint),'finalized'):false;
   const progress=bundleProgress(states,{expired,mintExists});
-  if(progress==='review'||progress==='failed'){await removePending(saved);return {status:progress,signature:saved.signature,mint:d.mint};}
+  if(progress==='review'||progress==='failed'){await unpend();return {status:progress,signature:saved.signature,mint:d.mint};}
   if(progress==='confirming'||progress==='reconciling')return {status:progress,signature:saved.signature,mint:d.mint,error:progress==='reconciling'?'The full bundle needs reconciliation. Keep every original signature; no replacement payment is requested.':undefined};
-  if(!broadcast){
-    const [blocked,attempted]=await Promise.all([read('submission-checks/'+d.id+'.json'),read('broadcasts/'+d.id+'.json')]);
-    return blocked&&!attempted?blockedLaunchResult(d,saved.signature,blocked.error):{status:'checking',signature:saved.signature,mint:d.mint};
-  }
-  try{
-    // Exactly the signed bundle, sequentially: a standalone transaction sim
-    // cannot see the preceding account/mint creation and is not sufficient.
-    const sim=await simulateLaunchBundle(rpc,saved.wires,d.simulationAddresses,{signed:true});
-    const debit=verifyBundleSimulation(d,sim);
-    if(debit>BigInt(d.estimatedSolRaw))return recordBlocked(d,saved,'The signed bundle exceeds its reviewed total SOL budget. Submission was blocked.');
-  }catch(error){if(error.safe)return recordBlocked(d,saved,error.message);throw error;}
-  await createOnce('broadcasts/'+d.id+'.json',{id:d.id,signature:saved.signature,attemptedAt:Date.now(),relay:'jito'},(a,b)=>a.signature===b.signature);
-  // Never fall back to sendRawTransaction: it would lose bundle ordering.
-  const bundleId=await jitoRequest('sendBundle',[saved.wires,{encoding:'base64'}]);
-  if(typeof bundleId!=='string'||!(/^[a-f0-9]{64}$/i).test(bundleId))fail('The launch relay response could not be verified. Keep the original signatures.',503);
-  await createOnce('bundles/'+d.id+'.json',{id:d.id,bundleId,signature:saved.signature},(a,b)=>a.bundleId===b.bundleId);
-  return {status:'submitted',signature:saved.signature,mint:d.mint,bundleId};
+  return {status:'checking',signature:saved.signature,mint:d.mint};
 }
-
-async function recordBlocked(d,saved,error){
-  await createOnce('submission-checks/'+d.id+'.json',{id:d.id,signature:saved.signature,error,checkedAt:Date.now()},(a,b)=>a.signature===b.signature);
+async function recordBlocked(d,saved,error,save=createOnce){
+  await save('submission-checks/'+d.id+'.json',{id:d.id,signature:saved.signature,error,checkedAt:Date.now()},(a,b)=>a.signature===b.signature);
   return blockedLaunchResult(d,saved.signature,error);
 }
 export function verifyAtomicLaunchReceipt(tx,d,priorNearDebit=0n){

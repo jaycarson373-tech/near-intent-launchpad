@@ -8,6 +8,10 @@ Owner supplied the exact new logo (header/footer/favicon), X `https://x.com/Inte
 
 Verification: 80 automated tests pass; production build succeeds; lint has only the pre-existing native NEAR effect warning. Phone 390px and desktop 1440px have no horizontal overflow; exact supplied logo loads, mobile menu and availability retry work. Curve layout QA used explicitly marked local fixtures only; temporary harness removed, no invented public coin. Production had no registered coins at this check. Fresh unsigned production prepare of the HAR's 0.01 SOL / 2% setup passed all three sequential simulations with estimated total 0.031016760 SOL (live quote, not a fixed guarantee). No wallet signed or broadcast by this agent. Funded wallet approval, actual bundle landing/buy, reload recovery and confirmed creator-fee/holder-delivery acceptance remain required.
 
+## v0 bundle fix — November 3, 2026 (branch `fix/v0-bundles`, not deployed)
+
+Live main ab26d67 sends launches as **v1** Jito bundles; they never land (owner HAR 2026-11-03: bundle id returned, nothing landed, expired). Jito needs **v0**, and v0 needs a **frozen lookup table**. `fix/v0-bundles` rebuilds the bundle as setup / create / fees v0 transactions with the frozen table, keeps bccc257's whole-bundle simulation and recovery, and refuses v1 wires. **Before launches work the owner must run `ClaudeHQ/scratch/intentpad-lookup-table.mjs`, freeze the table and set `INTENT_LOOKUP_TABLE` + `INTENT_LOOKUP_TABLE_SHA256`.** Until then prepare fails closed and health lists the table as missing. Details: RELEASE_NEAR_SOLANA.md (2026-11-03). Actor: claude--near-intent-launchpad.
+
 ## Earlier release gate — November 2, 2026
 
 Production runs bundle revision 42da749 at https://www.intentpad.fun. The earlier missing-operator and atomic-only blocking notes below are historical. Latest public read-only health: ready=true, rewardsReady=true, missing=[]; pulse price fresh and confirmed-reward projection available, zero distributed. 72 tests, lint (one existing native-NEAR warning) and production build pass again. `node scripts/check-public-release.mjs` reruns the non-spending public checks.

@@ -43,6 +43,8 @@ near-sandbox, near-workspaces and secp256k1 unless approved; the website does no
 - NEAR wallets: the native deploy tx is ~270 KB+ encoded; URL-transport wallets (MyNearWallet → HTTP 414) cannot sign it, so
   native deploys offer Meteor only. Funding (small tx) offers Meteor + MyNearWallet. Ask before adding a wallet dependency.
 - Solana: follow `C:/Users/PC/Projects/Crypto/shared/tx-safety-checklist.md` and `solana-rpc-efficiency.md`.
+- **Jito bundles must use v0 transactions, never v1** (Jito drops v1 bundles silently: id returned, never lands; 2026-11-03).
+  v0 is capped at 1232 bytes, so launch txs use the frozen lookup table. Details: `Crypto/shared/solana-build-playbook.md`.
 - Secrets are server-only; never in `VITE_*`. Never read `.env*` with real values. Raw token units are BigInt/decimal strings.
 - Copy follows the machine front-end rules (`C:/Users/PC/.claude/lib/frontend-rules.md`) and
   `Crypto/shared/token-launch-credibility.md`: never pitch the buyback/burn as live until it is.
