@@ -19,6 +19,9 @@ Verified baseline (2026-11-02, Actor: claude--near-intent-launchpad):
   results in launch() and fund(), Windows path fix + traversal tests, Vercel security headers, SHA-pinned CI, docs.
   Checks after merge: npm test 30/30, lint exit 0, build OK. Upstream's UI was taken as-is (my copy/panel edits targeted
   the old native UI that upstream removed).
+- DEPLOYED 2026-11-02 ~07:15 UTC: owner pushed f07514e to main. Vercel production + Railway (serein) success, CI verify
+  success. Probed both hosts: pages 200, /api/near config/token/verify (new fast 404), /api/catalog, /api/launch health ready,
+  /api/coins (empty), security headers, traversal 400. Live /launch DOM loads with no console errors.
 - No funded launch has happened on mainnet (Solana or native NEAR) or for 1Click funding.
 
 Open owner items:
