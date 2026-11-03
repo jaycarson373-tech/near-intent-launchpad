@@ -122,10 +122,10 @@ export function ActivityTape({
         First launches & confirmed airdrops appear here
       </span>
       <span className="tape-item">
-        <strong>65%</strong> to holders
+        <strong>100%</strong> for holders
       </span>
       <span className="tape-item">
-        <strong>35%</strong> treasury reserve
+        <strong>35%</strong> low-volume reserve
       </span>
       <span className="tape-item">
         <strong>15 min</strong> reward cycles
@@ -236,7 +236,7 @@ export function HolderFlow({ pulse }: { pulse: Pulse | null }) {
     <div className="holder-flow">
       <div className="holder-flow-heading">
         <span>
-          <span className="flow-glyph" /> CREATOR FEES → HOLDER REWARDS
+          <span className="flow-glyph" /> 100% OF CREATOR FEES → HOLDERS
         </span>
         <span>15 MIN CYCLE</span>
       </div>
@@ -245,13 +245,13 @@ export function HolderFlow({ pulse }: { pulse: Pulse | null }) {
           <strong>
             65<span>%</span>
           </strong>
-          <span>To holders</span>
+          <span>Regular airdrops</span>
         </div>
         <div>
           <strong>
             35<span>%</span>
           </strong>
-          <span>Reserve</span>
+          <span>Holder treasury</span>
         </div>
       </div>
       <div className="holder-flow-meter">

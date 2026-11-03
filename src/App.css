@@ -2330,3 +2330,46 @@ html {scroll-padding-top:140px}
 .holder-flow-heading{font-size:8px;letter-spacing:.45px}.holder-flow-heading>span:last-child{font-size:6.5px;letter-spacing:.5px}.holder-flow-numbers{grid-template-columns:1fr 1fr}.holder-flow-numbers>div>span{font-size:9px}.holder-flow-footer{font-size:9px}
 @media(max-width:1000px){.holder-flow-heading{font-size:7px}.holder-flow-heading>span:last-child{font-size:6px}}
 @media(max-width:760px){.holder-flow-heading{font-size:7px}.holder-flow-numbers>div>span{font-size:8px}.holder-flow-footer{font-size:8px}.tape-pause{width:36px}}
+
+/* Finalized NEAR curve accounting, separate from delayed DEX market indexing. */
+.curve-panel { padding: 23px 25px; margin: 20px 0 26px; }
+.curve-heading { display: flex; justify-content: space-between; align-items: center; gap: 20px; }
+.curve-heading h2 { font-size: 22px; letter-spacing: -.035em; font-weight: 500; margin: 9px 0 0; }
+.curve-heading > strong { color: var(--mint, #a9efc8); font-size: 31px; font-weight: 500; letter-spacing: -.04em; font-variant-numeric: tabular-nums; }
+.curve-track { height: 6px; border-radius: 8px; overflow: hidden; background: #23372b; margin: 19px 0; }
+.curve-track > span { display: block; height: 100%; background: #a9efc8; border-radius: inherit; transition: width .25s ease; }
+.curve-values { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 20px; }
+.curve-values > div { min-width: 0; }
+.curve-values span { display: block; color: #84918a; font-size: 11px; margin-bottom: 8px; }
+.curve-values b { color: #e8f3eb; font-size: 22px; letter-spacing: -.02em; font-weight: 500; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.curve-values small { font-size: 10px; color: #91a398; letter-spacing: 0; }
+.curve-footer { border-top: 1px solid #25352b; padding-top: 14px; margin-top: 20px; display: flex; justify-content: space-between; flex-wrap: wrap; gap: 10px; color: #7f9187; font-size: 10px; }
+.curve-footer a { color: #b1d2bf; }
+.curve-note, .curve-unavailable p { font-size: 11px; line-height: 1.7; color: #82958a; margin: 12px 0 0; max-width: 900px; }
+.curve-unavailable { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px; }
+.curve-unavailable .text-link { margin-top: 13px; }
+.health-retry { display: inline-flex; margin: 10px 0 0; border: 0; background: none; font-size: 12px; }
+.review-expiry { font-size: 12px; line-height: 1.7; color: #95a59b; margin: 14px 0; }
+@media(max-width:700px) {
+ .curve-panel { padding: 20px 18px; }
+ .curve-heading { align-items: flex-start; gap: 14px; }
+ .curve-heading h2 { font-size: 20px; line-height: 1.2; }
+ .curve-heading > strong { font-size: 25px; }
+ .curve-values { grid-template-columns: 1fr 1fr; gap: 20px 13px; }
+ .curve-values > div:last-child { grid-column: 1 / -1; }
+ .curve-values b { font-size: 20px; }
+ .curve-footer { line-height: 1.7; }
+}
+@media(prefers-reduced-motion:reduce) { .curve-track > span { transition:none; } }
+.header-ca {display:flex;align-items:center;gap:7px;flex-wrap:wrap;max-width:158px;min-height:44px;padding:7px 10px;background:#121d16;border:1px solid #293b30;border-radius:5px;color:#c3e3cd;font-size:10px;cursor:pointer;}
+.header-ca > span {color:#8faa98;font-size:9px;}
+.header-ca code {font-size:10px;}
+.header-x {align-self:center;}
+@media(min-width:1001px) and (max-width:1300px){.header-inner{gap:22px}.nav{gap:18px}.header-launch{display:none;}}
+@media(max-width:1000px){.header-inner{height:auto;min-height:76px;flex-wrap:wrap;padding-block:13px;gap:12px}.header-actions{flex-wrap:wrap;justify-content:flex-end;gap:7px}.header-ca{max-width:none;order:4;flex-basis:100%;justify-content:center;min-height:30px;padding:5px 8px}.header-actions{max-width:245px}.header-x{width:38px;min-width:38px;height:42px}.wallet-button{padding-inline:11px;gap:7px;font-size:11px}}
+@media(max-width:420px){.header-inner{gap:8px}.header-actions{max-width:195px}.wallet-button{min-width:0;gap:5px;font-size:10px;padding-inline:8px}.header-actions .menu-button{width:36px;min-width:36px}.header-x{width:30px;min-width:30px}.brand{font-size:21px;gap:7px}}
+
+@media(max-width:760px){.nav.open{top:100%}}
+
+.intent-brand-logo { width:34px; height:34px; object-fit:contain; border-radius:8px; flex-shrink:0; }
+@media(max-width:420px){.intent-brand-logo{width:29px;height:29px}}

@@ -1,3 +1,4 @@
+import { readCurve } from "../lib/curve-reader.mjs";
 import { send, handleError, fail } from "../lib/http.js";
 import { read } from "../lib/store.js";
 import { publicCoin, address } from "../lib/launch-model.js";
@@ -19,6 +20,9 @@ export default async function handler(req, res) {
     const d = await read("receipts/" + mint + ".json");
     if (!d)
       fail("No confirmed Intent Pad launch was found for this mint.", 404);
+    const curveRead = readCurve(mint, d.quoteMint)
+      .then((curve) => ({ curve, curveStatus: "available" }))
+      .catch(() => ({ curve: null, curveStatus: "unavailable" }));
     let market = null,
       marketStatus = "unavailable";
     try {
@@ -33,6 +37,7 @@ export default async function handler(req, res) {
             (p) =>
               p.chainId === "solana" &&
               p.baseToken?.address === mint &&
+              p.quoteToken?.address === d.quoteMint &&
               typeof p.pairAddress === "string" &&
               /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(p.pairAddress),
           );
@@ -57,7 +62,12 @@ export default async function handler(req, res) {
         }
       }
     } catch {}
-    send(res, 200, { coin: publicCoin(d), market, marketStatus });
+    send(res, 200, {
+      coin: publicCoin(d),
+      market,
+      marketStatus,
+      ...(await curveRead),
+    });
   } catch (error) {
     handleError(res, error);
   }

@@ -1,3 +1,4 @@
+import {CurveProgress,type CurveState} from "./CurveProgress";
 import {ActivityTape,HolderFlow} from './ActivityTape';
 import {usePulse} from './use-pulse';
 import { useEffect, useState } from "react";
@@ -17,6 +18,7 @@ import { Modal } from "./Modal";
 import { NativeReceipt } from "./NativeReceipt";
 import "./App.css";
 const DRAFT_KEY = "intent-pad-solana-editor.v1",
+  INTENT_CA = "near4NKS2qYVPdJhKHPJgRQVzXbmkBgFu39TXfxd6ce",
   YEAR = new Date().getFullYear();
 const atoms = (raw: string, dec = 9) => {
   if (!/^\d+$/.test(raw)) return "—";
@@ -308,7 +310,7 @@ export default function App() {
       <header className="header">
         <div className="header-inner">
           <a className="brand" href="/" onClick={(e) => link(e, "/")}>
-            <IntentMark />
+            <img className="intent-brand-logo" src="/intent-logo.png" width="34" height="34" alt=""/>
             <span>
               Intent<span className="brand-light">Pad</span>
             </span>
@@ -333,6 +335,8 @@ export default function App() {
             ))}
           </nav>
           <div className="header-actions">
+            <button className="header-ca" title={"Planned token address · not yet deployed: " + INTENT_CA} aria-label="Copy Intent Pad planned contract address" onClick={()=>void navigator.clipboard.writeText(INTENT_CA).then(()=>setNotice("Contract address copied. Token deployment is pending.")).catch(()=>setNotice(INTENT_CA))}><span>CA · pending</span><code>{short(INTENT_CA)}</code><Icon name="copy" size={13}/></button>
+            <a className="icon-button header-x" href="https://x.com/IntentPad" target="_blank" rel="noreferrer" aria-label="Intent Pad on X"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M18.9 2H22l-6.8 7.8L23.2 22h-6.3L12 14.6 5.5 22H2.3l8.2-9.4L.8 2h6.5l5.9 7.8L18.9 2Zm-1.1 18h1.7L6.4 3.9H4.6L17.8 20Z"/></svg></a>
             <button
               className="button secondary wallet-button"
               onClick={() => void launch.connect()}
@@ -677,7 +681,7 @@ export default function App() {
                       </div>
                       <small>
                         Fixed at launch. Pump’s protocol fee is separate.
-                        65% funds this coin’s holder rewards. 35% is held in its reserve.
+                        100% supports this coin’s holders: 65% for regular airdrops, 35% in the treasury for low-volume airdrops.
                       </small>
                     </fieldset>
                     <div className="funding-strip">
@@ -745,6 +749,7 @@ export default function App() {
                         Launch service unavailable:{" "}
                         {launch.health.missing.join(", ")}. Retry before a
                         wallet approval.
+                        <button type="button" className="text-link health-retry" disabled={launch.healthChecking || launch.busy} onClick={()=>void launch.refreshHealth()}>{launch.healthChecking?"Checking availability…":"Retry launch check"} <Icon name="refresh" size={14}/></button>
                       </p>
                     )}
                   </fieldset>
@@ -830,16 +835,17 @@ export default function App() {
                       </div>
                       <button
                         className="button primary full"
-                        disabled={launch.busy || now > launch.review.expiresAt}
-                        onClick={() => void launch.approve().then(onConfirmed)}
+                        disabled={launch.busy}
+                        onClick={() => now >= launch.review!.expiresAt ? void launch.refreshReview() : void launch.approve().then(onConfirmed)}
                       >
                         {launch.busy
                           ? "Waiting for wallet…"
-                          : now > launch.review.expiresAt
-                            ? "Review expired"
+                          : now >= launch.review.expiresAt
+                            ? "Refresh launch review"
                             : launch.review.bundle?"Approve launch bundle":launch.review.atomicSolBuy?"Approve SOL buy & launch":launch.review.phase==="conversion"?"Approve saved conversion":"Approve coin creation"}
                         <Icon name="wallet" />
                       </button>
+                      <p className="review-expiry" role="status">{now >= launch.review.expiresAt ? "This unsigned review expired. Refresh it to keep the same coin details and mint, then review the updated costs." : `Review valid for ${Math.max(0,Math.ceil((launch.review.expiresAt-now)/1000))} seconds. Wallet approval is still required.`}</p>
                       <button
                         className="button secondary full"
                         disabled={launch.busy}
@@ -893,7 +899,7 @@ export default function App() {
                 ],
                 [
                   "Where do creator fees go?",
-                  "Every 15 minutes, the worker checks confirmed creator fees. 65% funds proportional wNEAR rewards for that coin’s eligible direct-wallet holders, while 35% remains reserved. Pump’s protocol fee is separate. Tiny rewards carry forward until they cover the minimum transfer size.",
+                  "100% of confirmed creator fees supports this coin’s holders. Every 15 minutes, 65% funds proportional wNEAR rewards for eligible direct-wallet holders; 35% goes to the treasury reserve for gradual low-volume airdrops. Pump’s protocol fee is separate. Tiny rewards carry forward until they cover the minimum transfer size.",
                 ],
                 [
                   "What happens if confirmation is delayed?",
@@ -946,7 +952,7 @@ export default function App() {
       </main>
       <footer className="container footer">
         <a className="brand" href="/" onClick={(e) => link(e, "/")}>
-          <IntentMark />
+          <img className="intent-brand-logo" src="/intent-logo.png" width="34" height="34" alt=""/>
           <span>
             Intent<span className="brand-light">Pad</span>
           </span>
@@ -1034,7 +1040,7 @@ export default function App() {
 function HolderRewards({mint}:{mint:string}){
  const [data,setData]=useState<{claimedRaw:string;distributedRaw:string;reserveRaw:string;outstandingRaw:string;updatedAt:number;lastSnapshot:{slot:number;root:string}|null;payouts:{signature:string;owner:string;raw:string;time:number}[]}|null>(null),[error,setError]=useState(false);
  useEffect(()=>{let active=true;const refresh=()=>api<{rewards:typeof data}>("/api/rewards?mint="+mint).then(r=>{if(active){setData(r.rewards);setError(false)}}).catch(()=>{if(active)setError(true)});void refresh();const timer=setInterval(()=>{if(document.visibilityState==='visible')void refresh()},30000);return ()=>{active=false;clearInterval(timer)}},[mint]);
- return <section className="holder-rewards panel"><span className="eyebrow">THIS COIN’S HOLDER REWARDS</span><h2>Creator fees, back to holders.</h2><p className="rewards-note">Every 15 minutes, 65% of confirmed creator fees fund proportional wNEAR rewards. 35% stays reserved for quieter markets.</p>{data?<><div className="reward-metrics">{[["Fees claimed",data.claimedRaw],["Airdropped",data.distributedRaw],["Treasury reserve",data.reserveRaw]].map(([label,value])=><div key={label}><span>{label}</span><strong>{atoms(value)} wNEAR</strong></div>)}</div><p className="rewards-note">{data.lastSnapshot?<>Latest observed finalized snapshot · slot {data.lastSnapshot.slot.toLocaleString()} · <span title={data.lastSnapshot.root}>{data.lastSnapshot.root.slice(0,12)}…</span></>:"Awaiting the first completed holder snapshot."} {atoms(data.outstandingRaw)} wNEAR in accrued holder credits. Updated {new Date(data.updatedAt*1000).toLocaleTimeString()}.</p>{data.payouts.length?data.payouts.slice(0,6).map((r,i)=><div className="reward-receipt" key={r.signature+':'+i}><span>{short(r.owner)} · {atoms(r.raw)} wNEAR</span><a href={'https://solscan.io/tx/'+r.signature} target="_blank" rel="noreferrer">Confirmed transfer <Icon name="arrow" size={12}/></a></div>):<p className="rewards-note">No confirmed airdrops yet. Transfers appear here after onchain confirmation.</p>}</>:<p className="rewards-note">{error?"Reward records are temporarily unavailable. Refresh to check again.":"The first verified claim, snapshot and airdrop records will appear here. No distribution has been recorded yet."}</p>}</section>;
+ return <section className="holder-rewards panel"><span className="eyebrow">THIS COIN’S HOLDER REWARDS</span><h2>Creator fees, back to holders.</h2><p className="rewards-note">100% of creator fees supports holders: 65% funds regular wNEAR airdrops and 35% stays in the treasury for low-volume airdrops. Claims are checked every 15 minutes.</p>{data?<><div className="reward-metrics">{[["Fees claimed",data.claimedRaw],["Airdropped",data.distributedRaw],["Holder treasury reserve",data.reserveRaw]].map(([label,value])=><div key={label}><span>{label}</span><strong>{atoms(value)} wNEAR</strong></div>)}</div><p className="rewards-note">{data.lastSnapshot?<>Latest observed finalized snapshot · slot {data.lastSnapshot.slot.toLocaleString()} · <span title={data.lastSnapshot.root}>{data.lastSnapshot.root.slice(0,12)}…</span></>:"Awaiting the first completed holder snapshot."} {atoms(data.outstandingRaw)} wNEAR in accrued holder credits. Updated {new Date(data.updatedAt*1000).toLocaleTimeString()}.</p>{data.payouts.length?data.payouts.slice(0,6).map((r,i)=><div className="reward-receipt" key={r.signature+':'+i}><span>{short(r.owner)} · {atoms(r.raw)} wNEAR</span><a href={'https://solscan.io/tx/'+r.signature} target="_blank" rel="noreferrer">Confirmed transfer <Icon name="arrow" size={12}/></a></div>):<p className="rewards-note">No confirmed airdrops yet. Transfers appear here after onchain confirmation.</p>}</>:<p className="rewards-note">{error?"Reward records are temporarily unavailable. Refresh to check again.":"The first verified claim, snapshot and airdrop records will appear here. No distribution has been recorded yet."}</p>}</section>;
 }
 function CoinPage({
   mint,
@@ -1047,6 +1053,8 @@ function CoinPage({
 }) {
   const [data, setData] = useState<{
       coin: Coin;
+      curve?:CurveState|null;
+      curveStatus?:"available"|"unavailable";
       marketStatus: "available" | "pending" | "unavailable";
       market: {
         pair: string;
@@ -1069,13 +1077,13 @@ function CoinPage({
       )
         .then((d) => {
           if (active) {
-            setData(d);
+            setData(d);setError("");
             document.title =
               d.coin.name + " ($" + d.coin.symbol + ") · Intent Pad";
           }
         })
         .catch((e) => {
-          if (active) setError(e.message);
+          if (active) {setError(e.message);setData(previous=>previous?{...previous,curve:null,curveStatus:"unavailable",market:null,marketStatus:"unavailable"}:null);}
         })
         .finally(() => {
           if (active) setLoading(false);
@@ -1159,7 +1167,7 @@ function CoinPage({
           target="_blank"
           rel="noreferrer"
         >
-          Trade coin <Icon name="arrow" />
+          Trade with NEAR <Icon name="arrow" />
         </a>
       </div>
       <div className="token-address-row">
@@ -1182,7 +1190,8 @@ function CoinPage({
           </div>
         ))}
       </div>
-      {c.rewardPolicyHash && <HolderRewards mint={c.mint}/>}
+      {error && <p className="inline-status" role="alert">Market data could not refresh. Use Refresh curve to retry; verify prices at the trading venue.</p>}
+      <CurveProgress curve={data.curve} retry={()=>{setData(null);setLoading(true);setError("");setAttempt(n=>n+1);}}/>
       <div className="token-workspace">
         <section className="market-panel panel">
           <div className="panel-heading">
@@ -1251,7 +1260,7 @@ function CoinPage({
               target="_blank"
               rel="noreferrer"
             >
-              Trade on Pump.fun <Icon name="arrow" />
+              Trade with NEAR on Pump.fun <Icon name="arrow" />
             </a>
             <small>
               Trades require your wallet approval. Verify the mint at the venue.
@@ -1289,6 +1298,7 @@ function CoinPage({
           </section>
         </aside>
       </div>
+      {c.rewardPolicyHash && <HolderRewards mint={c.mint}/>}
       <div
         className="tabs detail-tabs"
         role="tablist"

@@ -1,6 +1,14 @@
 # near-intent-launchpad: current context
 
-## Current release gate — November 2, 2026
+## NEAR launch/curve release — November 2, 2026 (Codex)
+
+Preserved collaborator PRs #2–#4 by fast-forwarding through `ab26d67`; the new upstream tree changed only context notes. Added launch availability retry and same-mint unsigned review refresh. Signed/partial bundles remain recovery-only. Added finalized, program/quote-verified Pump curve reads, net NEAR reserves, live estimated completion percentage/amount, price in NEAR, and curve explorer links. Missing or invalid reads remain unavailable; migrated reserves are not presented as zero funds raised. The official Pump SDK constant-product completion quote supplies the calculation, rather than a fixed SOL graduation threshold. DEX quotes must match NEAR.
+
+Owner supplied the exact new logo (header/footer/favicon), X `https://x.com/IntentPad`, and public planned CA `near4NKS2qYVPdJhKHPJgRQVzXbmkBgFu39TXfxd6ce`. Finalized mainnet lookup at slot 464754371 returned no mint account; CA is copyable and marked pending. This does not configure an unverified mint as launch/reward eligibility. Clarified 100% of creator fees benefits holders: existing 65% regular / 35% low-volume reserve accounting and immutable policy remain unchanged. Existing reserve rule: volume below half of eight-sample median, 5% reserve release per cycle, max 20% of daily opening reserve.
+
+Verification: 80 automated tests pass; production build succeeds; lint has only the pre-existing native NEAR effect warning. Phone 390px and desktop 1440px have no horizontal overflow; exact supplied logo loads, mobile menu and availability retry work. Curve layout QA used explicitly marked local fixtures only; temporary harness removed, no invented public coin. Production had no registered coins at this check. Fresh unsigned production prepare of the HAR's 0.01 SOL / 2% setup passed all three sequential simulations with estimated total 0.031016760 SOL (live quote, not a fixed guarantee). No wallet signed or broadcast by this agent. Funded wallet approval, actual bundle landing/buy, reload recovery and confirmed creator-fee/holder-delivery acceptance remain required.
+
+## Earlier release gate — November 2, 2026
 
 Production runs bundle revision 42da749 at https://www.intentpad.fun. The earlier missing-operator and atomic-only blocking notes below are historical. Latest public read-only health: ready=true, rewardsReady=true, missing=[]; pulse price fresh and confirmed-reward projection available, zero distributed. 72 tests, lint (one existing native-NEAR warning) and production build pass again. `node scripts/check-public-release.mjs` reruns the non-spending public checks.
 

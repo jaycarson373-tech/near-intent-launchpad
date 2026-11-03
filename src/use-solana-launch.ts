@@ -3,6 +3,7 @@ import { getWallets } from "@wallet-standard/app";
 import type { Wallet } from "@wallet-standard/base";
 import { getTransactionDecoder, getTransactionEncoder } from "@solana/kit";
 import bs58 from "bs58";
+import { unsignedReviewDetails } from "../lib/launch-review.mjs";
 import { launchDraft } from "../lib/launch-draft-store.mjs";
 import {
   walletSignedLaunchMatches,
@@ -109,6 +110,7 @@ const dropFunding = (saved: Saved) => {
 };
 type Account = { address: string; chains: readonly string[] };
 type Connected = { wallet: Wallet; account: Account };
+type LaunchHealth = {ready:boolean;missing:string[];creatorFeeOptions:number[]};
 const from64 = (v: string) => Uint8Array.from(atob(v), (c) => c.charCodeAt(0)),
   to64 = (v: Uint8Array) => btoa(String.fromCharCode(...v));
 export async function api<T>(url: string, input?: unknown): Promise<T> {
@@ -139,17 +141,34 @@ export function useSolanaLaunch() {
     [signature, setSignature] = useState(""),
     [confirmedCoin, setConfirmedCoin] = useState<Coin | null>(null),
     [stage, setStage] = useState("idle"),
-    [health, setHealth] = useState<{
-      ready: boolean;
-      missing: string[];
-      creatorFeeOptions: number[];
-    } | null>(null),
+    [health, setHealth] = useState<LaunchHealth | null>(null),
+    [healthChecking, setHealthChecking] = useState(false),
     [balance, setBalance] = useState<{
       solRaw: string;
       nearRaw: string;
     } | null>(null);
   const current = useRef<Connected | null>(null),
-    lock = useRef(false);
+    lock = useRef(false),
+    healthFlight = useRef<Promise<LaunchHealth>|null>(null);
+  function refreshHealth() {
+    if (healthFlight.current) return healthFlight.current;
+    setHealthChecking(true);
+    healthFlight.current=api<LaunchHealth>("/api/launch?action=health")
+      .then(value=>{setHealth(value);return value;})
+      .catch(()=>{const value={ready:false,missing:["launch availability check"],creatorFeeOptions:[]};setHealth(value);return value;})
+      .finally(()=>{healthFlight.current=null;setHealthChecking(false);});
+    return healthFlight.current;
+  }
+  async function refreshReview() {
+    const owner=current.current?.account.address;
+    if (!owner || lock.current) return;
+    try {
+      const saved=await launchDraft("get","mainnet:"+owner) as Saved|undefined;
+      const details=unsignedReviewDetails(saved,owner);
+      if(current.current?.account.address!==owner)throw Error("Reconnect the original wallet to refresh this review.");
+      await prepare(details);
+    } catch(e) {setMessage((e as Error).message);}
+  }
   useEffect(() => {
     current.current = connected;
   }, [connected]);
@@ -164,15 +183,7 @@ export function useSolanaLaunch() {
     update();
     const off = directory.on("register", update),
       off2 = directory.on("unregister", update);
-    void api<typeof health>("/api/launch?action=health")
-      .then(setHealth)
-      .catch(() =>
-        setHealth({
-          ready: false,
-          missing: ["launch availability check"],
-          creatorFeeOptions: [],
-        }),
-      );
+    void refreshHealth();
     return () => {
       off();
       off2();
@@ -274,7 +285,7 @@ export function useSolanaLaunch() {
       held: Saved | undefined;
     try {
       let saved = (await launchDraft("get", key)) as Saved | undefined;
-      if (saved?.signed) {
+      if (saved?.signed || saved?.bundleSigned?.length) {
         throw Error(
           "This wallet has a signed launch. Resume it before preparing another coin.",
         );
@@ -537,6 +548,9 @@ export function useSolanaLaunch() {
     signature,
     stage,
     health,
+    healthChecking,
+    refreshHealth,
+    refreshReview,
     balance,
     refreshBalance,
     prepare,
