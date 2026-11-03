@@ -18,10 +18,10 @@
 
 Files: `lib/staged-launch.mjs`, `tests/staged-launch.test.js`.
 
-- [ ] Test setup excludes conversion and creation, creation contains both immutable fee instructions, buy combines bounded conversion and live-curve buy. Existing builders remain the source of instruction semantics.
-- [ ] Build with `compileLaunchV1`, explicit limits and 200-byte size allowance. Use `assertLaunchTraceBudget` on every exact unsigned standalone simulation before returning a review. Preserve quote ATA setup and existing-wallet token identities.
-- [ ] For buy, fetch live curve/mint/base reserve state, verify quote/creator/fee policy and use SDK current-state quote. Simulated purchased balance must increase by its encoded minimum. Atomic SOL buy must preserve existing NEAR and all unrelated assets.
-- [ ] Run focused test with `node --test tests/staged-launch.test.js`.
+- [x] Test setup excludes conversion and creation, creation contains both immutable fee instructions, buy combines bounded conversion and live-curve buy. Existing builders remain the source of instruction semantics.
+- [x] Build with `compileLaunchV1`, explicit limits and 200-byte size allowance. Use `assertLaunchTraceBudget` on every exact unsigned standalone simulation before returning a review. Preserve quote ATA setup and existing-wallet token identities.
+- [x] For buy, fetch live curve/mint/base reserve state, verify quote/creator/fee policy and use SDK current-state quote. Simulated purchased balance must increase by its encoded minimum. Atomic SOL buy must preserve existing NEAR and all unrelated assets.
+- [x] Run focused test with `node --test tests/staged-launch.test.js`.
 
 ## Task 2: Durable staged lifecycle
 
@@ -43,23 +43,23 @@ Wire protocol:
 {status: 'confirmed', coin}
 ```
 
-- [ ] Test unsigned refresh, duplicate prepares, concurrent submission, delayed indexing, response loss, finalized failure, expiry-before-status ordering and predecessor validation.
-- [ ] Root metadata lives at existing `drafts/<rootId>`. Mint ownership is claimed before first signed phase. Phase review attempts are immutable and stored in deterministic slots indexed by root/phase/predecessor. A replacement requires an expired unsigned review or finalized failed/expired signed attempt. Each predecessor has exactly one successor slot.
-- [ ] Persist signed bytes before broadcast. Verify predecessor phase outcomes and mint claim again before each effect. Simulate exact signed bytes with signature checking, enforce SOL fee/debit limits, then send identical bytes with preflight enabled. Unknown outcomes never authorize replacement.
-- [ ] Exact finalized receipt messages bind completion. Creation verifies mint and immutable fee assignment, writes normal immutable coin receipt; optional buy has a separate outcome. Failure/cancellation of buy never hides or re-creates the coin. Legacy bundles remain untouched.
-- [ ] Route `staged-v1` in prepare, submit and status before old flow dispatch. Health for new flow no longer requires Jito/ALT readiness. Existing economics/worker readiness remain.
+- [x] Test unsigned refresh, duplicate prepares, concurrent submission, delayed indexing, response loss, finalized failure, expiry-before-status ordering and predecessor validation.
+- [x] Root metadata lives at existing `drafts/<rootId>`. Mint ownership is claimed before first signed phase. Phase review attempts are immutable and stored in deterministic slots indexed by root/phase/predecessor. A replacement requires an expired unsigned review or finalized failed/expired signed attempt. Each predecessor has exactly one successor slot.
+- [x] Persist signed bytes before broadcast. Verify predecessor phase outcomes and mint claim again before each effect. Simulate exact signed bytes with signature checking, enforce SOL fee/debit limits, then send identical bytes with preflight enabled. Unknown outcomes never authorize replacement.
+- [x] Exact finalized receipt messages bind completion. Creation verifies mint and immutable fee assignment, writes normal immutable coin receipt; optional buy has a separate outcome. Failure/cancellation of buy never hides or re-creates the coin. Legacy bundles remain untouched.
+- [x] Route `staged-v1` in prepare, submit and status before old flow dispatch. Health for new flow no longer requires Jito/ALT readiness. Existing economics/worker readiness remain.
 
 ## Task 3: Browser approvals and recovery
 
 Files: `src/use-solana-launch.ts`, `src/App.tsx`, relevant pure recovery tests.
 
-- [ ] Start new staged flow; require wallet's advertised v1 support before approval. Sign one phase; mint co-sign only create. Save exact signed bytes before submitting.
-- [ ] On phase-confirmed, retain root/mint/completed receipts and prepare next phase without requesting its signature automatically. If preparation fails, retain the completed phase and allow resume.
-- [ ] Refresh/retry only current phase. Keep created mint on failed buy. Preserve old signed bundle recovery. Do not erase root until all requested work finishes or user explicitly finishes without buy.
-- [ ] Review labels disclose current phase debit, separate approvals, account rent, permanent creation and optional buy cancellation. Remove bundle/Jito promises for new launches. Show created coin link while buy remains pending.
+- [x] Start new staged flow; require wallet's advertised v1 support before approval. Sign one phase; mint co-sign only create. Save exact signed bytes before submitting.
+- [x] On phase-confirmed, retain root/mint/completed receipts and prepare next phase without requesting its signature automatically. If preparation fails, retain the completed phase and allow resume.
+- [x] Refresh/retry only current phase. Keep created mint on failed buy. Preserve old signed bundle recovery. Do not erase root until all requested work finishes or user explicitly finishes without buy.
+- [x] Review labels disclose current phase debit, separate approvals, account rent, permanent creation and optional buy cancellation. Remove bundle/Jito promises for new launches. Show created coin link while buy remains pending.
 
 ## Task 4: Acceptance and publication
 
-- [ ] Run full npm tests, each tsconfig `tsc --noEmit`, lint and build on final candidate. Check legacy recovery and fee-allocation tests.
-- [ ] Independent review of final source diff and focused recheck of confirmed defects. Update existing Phantom/release/context docs with code behavior and honest live-testing limits.
+- [x] Run full npm tests, each tsconfig `tsc --noEmit`, lint and build on final candidate. Check legacy recovery and fee-allocation tests.
+- [x] Independent review of final source diff and focused recheck of confirmed defects. Update existing Phantom/release/context docs with code behavior and honest live-testing limits.
 - [ ] Inspect CI before publication, publish the dedicated branch/PR and merge under the owner's explicit instruction after local acceptance and review. Leave workflow configuration unchanged, never bypass protections, and verify both automatic deployment receipts.
