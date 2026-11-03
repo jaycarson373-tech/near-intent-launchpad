@@ -2,7 +2,7 @@ import {solConversion,walletTokenState,verifyConversionEffects} from '../lib/sol
 import {compactTokenSetup,assertLaunchTraceBudget,assertTraceCount,innerInstructionCount,blockedLaunchResult} from '../lib/launch-budget.mjs';
 import {launchParts,launchMemo,buildBundle,compileBundleTx,assertV0Wires,logTraceCount,simulateLaunchBundle,messageMatchesReceipt,bundleProgress,ATA_CREATE_TRACE,BUY_TRACE} from '../lib/launch-bundle.mjs';
 import {launchLookupTable} from '../lib/lookup-table.mjs';
-import {jitoTipAccount,sendJitoBundle,JITO_TIP_LAMPORTS} from '../lib/jito.mjs';
+import {jitoTipAccount,sendJitoBundle,jitoBundleStatus,JITO_TIP_LAMPORTS} from '../lib/jito.mjs';
 import {rewardReadiness,POLICY_HASH} from '../lib/reward-readiness.mjs';
 // PennyFun's reviewed creation/immutable-fee flow, adapted to the verified wNEAR quote.
 import { randomUUID, createHash } from "node:crypto";
@@ -553,6 +553,8 @@ function bundleIo(deps) {
     createOnce: deps.createOnce || createOnce,
     removePointer: deps.removePointer || removePointer,
     sendBundle: deps.sendJitoBundle || sendJitoBundle,
+    // Diagnostic only; injected senders (tests) get no live status lookups.
+    bundleState: deps.bundleState || (deps.sendJitoBundle ? null : jitoBundleStatus),
     simulateBundle: deps.simulateLaunchBundle || simulateLaunchBundle,
     now: deps.now || Date.now,
   };
@@ -740,6 +742,16 @@ async function resendBundle(d, saved, io) {
       await io.create("jito/" + d.id + "-" + bucket + "-sent.json", { id: d.id, bundleId, sentAt: io.now() });
     } catch {
       /* The bundle id is diagnostic only; signatures remain the source of truth. */
+    }
+    if (io.bundleState) {
+      // Jito keeps in-flight status for 5 minutes only; log its verdict so a bundle that never
+      // lands explains itself (Pending = still in auction, Failed/Invalid = rejected).
+      try {
+        const state = await io.bundleState(bundleId);
+        console.log(JSON.stringify({ service: "intent-pad-api", jito: "bundle", id: d.id, bundleId, state: state.state, slot: state.slot ?? null, tipLamports: String(d.tipLamports ?? "") }));
+      } catch {
+        /* diagnostic only */
+      }
     }
     return { ...result, bundleId };
   } catch (error) {
