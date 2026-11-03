@@ -783,9 +783,11 @@ export default function App() {
                           ? "Transaction failed"
                           : launch.stage === "blocked"
                             ? "Submission blocked"
-                          : launch.stage === "review"
-                            ? "Transaction expired"
-                            : "Tracking original transaction"}
+                          : launch.stage === "partial"
+                            ? "Launch partly landed"
+                          : launch.stage === "review" || launch.stage === "expired"
+                            ? "Launch expired"
+                            : "Tracking original launch"}
                       </div>
                       <a
                         className="text-link"
@@ -825,7 +827,7 @@ export default function App() {
                       <div className="funding-note">
                         <Icon name="shield" />
                         <p>
-                          {launch.review.bundle?'Approve the complete bundle together. It prepares token accounts, creates your coin with its fees locked, and completes the initial buy. The swap and buy share one transaction; the bundle is submitted only through Jito.':launch.review.atomicSolBuy?'This transaction converts SOL, creates your coin and makes the initial buy. Network fees can apply.':launch.review.phase==='conversion'?'This saved review converts SOL to NEAR. Coin creation requires a separate approval. Converted NEAR stays in your wallet if you stop.':'This transaction creates your coin and locks its reviewed fee recipient. Your wallet shows the initial buy, if set, plus rent and network fees.'}
+                          {launch.review.bundle?'Approve all '+(launch.review.wires?.length||3)+' transactions at once: account setup, coin creation, then fee lock with your initial buy. Sent only as one Jito bundle.':launch.review.atomicSolBuy?'This transaction converts SOL, creates your coin and makes the initial buy. Network fees can apply.':launch.review.phase==='conversion'?'This saved review converts SOL to NEAR. Coin creation requires a separate approval. Converted NEAR stays in your wallet if you stop.':'This transaction creates your coin and locks its reviewed fee recipient. Your wallet shows the initial buy, if set, plus rent and network fees.'}
                         </p>
                       </div>
                       <button
@@ -909,7 +911,7 @@ export default function App() {
                 ],
                 [
                   "Who receives the initial buy?",
-                  "Your connected Solana launching wallet. Enter the initial buy in SOL. Setup, fee-locked creation and the purchase are reviewed together as a Jito bundle. The SOL conversion and buy are in the same transaction. Every transaction must confirm before the coin is published. Existing finalized conversions keep their recovery path. Network fees can apply; relay bundles also carry a small disclosed tip.",
+                  "Your connected Solana launching wallet. Enter the initial buy in SOL. Account setup with the SOL conversion, coin creation, and fee lock with the purchase are approved together and sent as one Jito bundle. Every transaction must confirm before the coin is published. Existing finalized conversions keep their recovery path. Network fees can apply; relay bundles also carry a small disclosed tip.",
                 ],
                 [
                   "Is this an official NEAR or Pump.fun product?",
@@ -1285,7 +1287,7 @@ function CoinPage({
             >
               Launch receipt <Icon name="arrow" size={15} />
             </a>
-            {c.settlementSignatures?.map((signature,i)=>signature===c.signature?null:<a className="text-link" key={signature} href={'https://solscan.io/tx/'+signature} target="_blank" rel="noreferrer">{i===0?'Account setup receipt':'Initial buy receipt'} <Icon name="arrow" size={15}/></a>)}
+            {c.settlementSignatures?.map((signature,i)=>signature===c.signature?null:<a className="text-link" key={signature} href={'https://solscan.io/tx/'+signature} target="_blank" rel="noreferrer">{i===0?'Account setup receipt':'Fee lock & buy receipt'} <Icon name="arrow" size={15}/></a>)}
           </section>
         </aside>
       </div>
