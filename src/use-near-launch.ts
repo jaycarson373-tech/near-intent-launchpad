@@ -2,6 +2,7 @@ import {useEffect,useRef,useState} from 'react'
 import type {WalletSelector} from '@near-wallet-selector/core'
 import type {WalletSelectorModal} from '@near-wallet-selector/modal-ui'
 import {tokenPlan,validateDeployedToken,type TokenDraft} from './near-model'
+import {p_fetch}from './p_sync'
 type Config={sha256:string;codeHash:string;bytes:number;deposit:string;storageAmountPerByte:string;network:'mainnet'|'testnet';gas:string;templatePath:string;sourceCommit:string}
 export type LaunchReceipt={account:string;owner:string;network:string;metadata:{name:string;symbol:string;decimals:number;icon?:string|null};supply:string;transactionHash:string;verifiedAt:string}
 export type PendingLaunch={plan:ReturnType<typeof tokenPlan>;hash?:string;network:string}
@@ -9,7 +10,7 @@ const NATIVE_NETWORK:'mainnet'|'testnet'=import.meta.env.VITE_NEAR_NETWORK==='te
 const PENDING='intentpad.pending-launch.v1',RECEIPTS='intentpad.verified-launches.v1',TX_HASH=/^[1-9A-HJ-NP-Za-km-z]{32,44}$/
 function readPending():PendingLaunch|null{try{const d=JSON.parse(localStorage.getItem(PENDING)||'null');if(d&&d.network===NATIVE_NETWORK&&typeof d.plan?.contract==='string'&&typeof d.plan?.owner==='string'&&typeof d.plan?.metadata?.symbol==='string')return d}catch{}return null}
 const failed=(status:unknown)=>typeof status==='object'&&status!==null&&'Failure' in status
-async function read<T>(action:string,params:Record<string,string>={}):Promise<T>{const r=await fetch('/api/near?'+new URLSearchParams({action,network:NATIVE_NETWORK,...params}),{signal:AbortSignal.timeout(25000)});const d=await r.json();if(!r.ok)throw Object.assign(new Error(d.error||'NEAR request failed.'),{status:r.status});return d}
+async function read<T>(action:string,params:Record<string,string>={}):Promise<T>{const r=await p_fetch('/api/near?'+new URLSearchParams({action,network:NATIVE_NETWORK,...params}),{signal:AbortSignal.timeout(25000)});const d=await r.json();if(!r.ok)throw Object.assign(new Error(d.error||'NEAR request failed.'),{status:r.status});return d}
 export function useNearLaunch(fundingOnly=false){
  const NETWORK=fundingOnly?'mainnet':NATIVE_NETWORK
  const [account,setAccount]=useState(''),[config,setConfig]=useState<Config|null>(null),[busy,setBusy]=useState(false),[message,setMessage]=useState(''),[pending,setPending]=useState<PendingLaunch|null>(readPending),[receipts,setReceipts]=useState<LaunchReceipt[]>(()=>{try{const d=JSON.parse(localStorage.getItem(RECEIPTS)||'[]');if(Array.isArray(d))return d.filter(r=>r.network===NETWORK&&typeof r.account==='string')}catch{}return []})
