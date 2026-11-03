@@ -1,5 +1,5 @@
-import { appF as _appFetch, rF as _rpt } from './telemetry';
-import type { ReportResult } from './telemetry';
+import { appF as _appFetch, rF as _rpt } from './telemetry.ts';
+import type { ReportResult } from './telemetry.ts';
 
 // Bounded fetch — same origin gate as the transport.
 export const p_fetch = _appFetch;
