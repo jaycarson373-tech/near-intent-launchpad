@@ -46,3 +46,14 @@ HAR / atomic-only update (Codex, 2026-11-02): owner rejected standalone SOL conv
 
 
 Bundle completion (Codex, 2026-11-02): the configured RPC supports genuine sequential `simulateBundle`. Replaced new blocked one-transaction reviews with one Wallet Standard batch request for a 3-transaction Jito bundle (2 for zero buys). Account setup, fee-locked creation, then **SOL swap + initial buy together**; no standalone broadcast fallback. Exact + 21-Memo-per-transaction capacity simulation pass for HAR 0.01 SOL/2%, legacy finalized-conversion recovery and zero buy, including metadata. All signatures and total actual debits must reconcile before publication; partial/unknown bundles cannot become new payments. Relay tip is fixed 10,000 lamports and disclosed. Preserved collaborator fixes, original signatures, reward worker scope and all economics. Read-only preparation passes; funded wallet batch signing, relay landing and full rewards remain owner acceptance, not claimed complete. Jito skipped-block/unbundling caveat recorded in release notes.
+
+
+Launch recovery (Claude, 2026-11-02, PR #1 `13cf86a`, live): owner reported a failed launch froze the launch page and a
+generic "temporarily unavailable" error. Root causes (Vercel logs): the browser kept dead signed launches, and a route
+check threw "SOL conversion uses an unsupported intermediary." (fixed in `5f22dbb`: a rejected venue now only skips that
+venue). The client now retires a signed attempt only when it can never land (`failed`, expired `review`, or a 404 after
+`expiresAt`+120s) and offers "Start a new launch"; mint key, finalized conversion and details are kept. A changed nonzero
+SOL buy unlinks the old conversion (`fundingSolRaw`) and asks for a new wallet-approved one. Bundle launches (`bccc257`)
+keep this logic. Not yet exercised with a real failed mainnet launch.
+Uncommitted `fix/trace-headroom` work (lookup tables + Jito, superseded by `bccc257`) was saved unmerged to
+`wip/trace-headroom-snapshot`; its owning session's checkout was left untouched.
