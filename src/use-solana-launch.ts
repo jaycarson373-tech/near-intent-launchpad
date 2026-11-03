@@ -4,7 +4,7 @@ import { getWallets } from "@wallet-standard/app";
 import type { Wallet } from "@wallet-standard/base";
 import { getTransactionDecoder, getTransactionEncoder } from "@solana/kit";
 import bs58 from "bs58";
-import { phaseReceipt, stagedContinuation, finishableBuy, canonicalSignedReceipt } from "../lib/staged-review.mjs";
+import { phaseReceipt, stagedContinuation, finishableBuy, canonicalSignedReceipt, validateCanonicalRequired } from "../lib/staged-review.mjs";
 import { unsignedReviewDetails } from "../lib/launch-review.mjs";
 import { launchDraft } from "../lib/launch-draft-store.mjs";
 import {
@@ -417,8 +417,15 @@ export function useSolanaLaunch() {
     setReview(result); setSignature(""); setStage("review"); setCreatedCoin(saved.coin || null);
     setMessage("The previous phase is finalized. Review this phase before approving it separately.");
   }
-  async function stagedResult(saved: Saved, result: LaunchStatus) {
+  async function stagedResult(saved: Saved, result: LaunchStatus, source: "submit" | "status" = "submit") {
+    if (result.status === "canonical-required") {
+      if (source !== "status") throw Error("The server could not reconcile the saved signed phase. Keep its recovery and retry confirmation later.");
+      validateCanonicalRequired(saved, result);
+      await follow(saved);
+      return true;
+    }
     if (result.status === "canonical-signed") {
+      if (source !== "submit") throw Error("Signed recovery requires resubmitting the locally saved original phase. Keep its recovery and retry confirmation.");
       const next = canonicalSignedReceipt(saved, result);
       await launchDraft("put", "mainnet:" + saved.creator, next);
       if (current.current?.account.address !== saved.creator) return true;
@@ -641,7 +648,7 @@ export function useSolanaLaunch() {
       if (review.flow === "staged-v1") {
         const saved = await launchDraft("get", "mainnet:" + owner) as Saved | undefined;
         if (!saved || saved.signature !== signature) throw Error("Restore the original signing wallet to recover this phase.");
-        if (await stagedResult(saved,r)) return;
+        if (await stagedResult(saved,r,"status")) return;
       }
       if (review.flow !== "staged-v1" && DEAD.includes(r.status)) {
         const saved = (await launchDraft("get", "mainnet:" + owner)) as Saved | undefined;
