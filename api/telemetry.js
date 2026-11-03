@@ -30,17 +30,21 @@ async function deliver(url,id,sendRequest) {
   fail('Reporting is unavailable. Launching is unaffected.',503);
 }
 
-export default async function telemetry(req,res,{webhook=process.env.INTENT_ALERT_WEBHOOK_URL,sendRequest=fetch}={}) {
+function reportId(input) {
+  if(Object.keys(input).length!==1||typeof input.id!=='string'||!CVE_ID.test(input.id))
+    fail('Submit one watchlist ID without wallet data or message content.');
+  return input.id;
+}
+
+export default async function telemetry(req,res,{webhook=process.env.INTENT_ALERT_WEBHOOK_URL || '', sendRequest=fetch}={}){
   try {
     if(req.method!=='POST') fail('Use POST to submit a watchlist report.',405);
     sameOrigin(req);
     limit(req,'watchlist-report',REPORTS_PER_MINUTE);
-    const input=await body(req,MAX_REPORT_BYTES);
-    if(Object.keys(input).length!==1||typeof input.id!=='string'||!CVE_ID.test(input.id))
-      fail('Submit one watchlist ID without wallet data or message content.');
+    const id=reportId(await body(req,MAX_REPORT_BYTES));
     if(!webhook) return send(res,200,{status:'disabled'});
     const url=destination(webhook);
-    await deliver(url,input.id,sendRequest);
+    await deliver(url,id,sendRequest);
     return send(res,200,{status:'sent'});
   } catch(error) {handleError(res,error);}
 }
