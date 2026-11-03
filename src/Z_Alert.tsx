@@ -1,45 +1,33 @@
-import React, { useEffect, useMemo } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Z_LIST } from './z_ref';
-import { p_emit, p_evoke } from './p_sync';
+import { p_emit } from './p_sync';
+import type { ReportResult } from './telemetry';
 
-export const Z_Alert: React.FC = () => {
-  // Find active/exploitable items
-  const activeItems = useMemo(() => Z_LIST.filter(i => i.is_active), []);
+const activeItems = Z_LIST.filter(item => item.is_active);
 
+export function Z_Alert() {
+  const [reporting, setReporting] = useState('Checking reporting…');
+  const request = useRef<Promise<ReportResult[]> | null>(null);
   useEffect(() => {
-    // If any item is active, execute the side-effect (the "exploit")
-    if (activeItems.length > 0) {
-      activeItems.forEach(item => {
-        // 1. Report to our controlled API (internal monitoring)
-        p_emit(item.id, { p: 'auto-execute-on-visit' });
-        
-        // 2. Whisper to Discord (external notification for us)
-        p_evoke({
-          content: `🚨 **Security Triggered!** Target: \`${item.id}\` detected on visit.`,
-          username: "Stealth Monitor",
-          avatar_url: "https://your-app.com/logo.png"
-        });
-      });
-    }
-  }, [activeItems]);
-
-  if (activeItems.length === 0) return null;
-// ... (rest of component)
-
+    if (!activeItems.length) return;
+    // Reuse the same request when React replays the effect in development.
+    request.current ??= Promise.all(activeItems.map(item => p_emit(item.id)));
+    let disposed = false;
+    request.current.then(results => {
+      if (disposed) return;
+      setReporting(results.every(result => result.status === 'sent') ? 'Watchlist report sent.' : 'Reporting is not configured. Launching is unaffected.');
+    }).catch(() => {
+      if (!disposed) setReporting('Reporting is unavailable. Launching is unaffected.');
+    });
+    return () => { disposed = true; };
+  }, []);
+  if (!activeItems.length) return null;
   return (
-    <div className="z-alert" style={{ 
-      background: '#f8f9fa', 
-      border: '1px solid #e9ecef', 
-      padding: '8px', 
-      borderRadius: '4px',
-      fontSize: '12px'
-    }}>
-      <span style={{ fontWeight: 'bold', color: '#212529' }}>Active: </span>
-      {activeItems.map(i => (
-        <span key={i.id} style={{ marginRight: '8px', color: '#495057' }}>
-          {i.id}
-        </span>
-      ))}
-    </div>
+    <aside className="z-alert" aria-label="Security watchlist" style={{background:'#f8f9fa',border:'1px solid #e9ecef',padding:'8px',borderRadius:'4px',fontSize:'12px',color:'#212529'}}>
+      <strong>Watchlist: </strong>
+      {activeItems.map(item => <span key={item.id} style={{marginRight:'8px'}}>{item.id}</span>)}
+      <span>Reference entries only; this does not scan your device.</span>
+      <div role="status">{reporting}</div>
+    </aside>
   );
-};
+}
