@@ -31,3 +31,37 @@ test('canonical completion rejects missing signature and foreign coin receipts',
  assert.throws(()=>phaseReceipt(saved(),{status:'phase-confirmed',launchId:'root',phase:'create',signature:''}));
  assert.throws(()=>phaseReceipt(saved(),{status:'phase-confirmed',launchId:'root',phase:'create',signature:'signature',coin:{mint:'other'}}));
 });
+
+import {Keypair, SystemProgram, TransactionInstruction, PublicKey} from '@solana/web3.js';
+import {getTransactionDecoder,getTransactionEncoder} from '@solana/kit';
+import {ed25519} from '@noble/curves/ed25519';
+import {compileLaunchV1} from '../lib/launch-wire.mjs';
+import {cloutPaymentSignature} from '../lib/launch-signatures.mjs';
+import {canonicalSignedReceipt} from '../lib/staged-review.mjs';
+function canonicalFixture() {
+ const payer=Keypair.fromSeed(new Uint8Array(32).fill(1)),mint=Keypair.fromSeed(new Uint8Array(32).fill(2));
+ const latest={blockhash:Keypair.fromSeed(new Uint8Array(32).fill(3)).publicKey.toBase58(),lastValidBlockHeight:100};
+ const transfer=SystemProgram.transfer({fromPubkey:payer.publicKey,toPubkey:mint.publicKey,lamports:1});
+ const build=instructions=>compileLaunchV1({payer:payer.publicKey,latest,instructions}).serialize();
+ const reviewed=build([transfer]);
+ const canonical=build([transfer,new TransactionInstruction({programId:new PublicKey('L2TExMFKdjpN9kozasaurPirfHy9P8sbXoAN1qA3S95'),keys:[],data:Buffer.from([1])})]);
+ const sign=wire=>{const decoded=getTransactionDecoder().decode(wire);return new Uint8Array(getTransactionEncoder().encode({...decoded,signatures:{...decoded.signatures,[payer.publicKey.toBase58()]:ed25519.sign(decoded.messageBytes,payer.secretKey.slice(0,32))}}));};
+ const original=sign(reviewed),wire=sign(canonical),creator=payer.publicKey.toBase58(),publicKey=mint.publicKey.toBase58();
+ const state={creator,publicKey,launchId:'root',details:{name:'Retained coin'},completedPhases:[],signed:original,signature:cloutPaymentSignature(original),review:{id:'attempt',flow:'staged-v1',launchId:'root',phase:'setup',creator,mint:publicKey,wire:Buffer.from(reviewed).toString('base64')}};
+ const receipt={status:'canonical-signed',id:'attempt',launchId:'root',phase:'setup',signature:cloutPaymentSignature(wire),wire:Buffer.from(wire).toString('base64')};
+ return {state,receipt,wire,sign,build,transfer};
+}
+test('canonical signed adoption retains the root and metadata while replacing only exact verified signed recovery',()=>{
+ const {state,receipt,wire}=canonicalFixture(),next=canonicalSignedReceipt(state,receipt);
+ assert.deepEqual(next.signed,wire);assert.equal(next.signature,receipt.signature);assert.notEqual(next.signature,state.signature);
+ assert.equal(next.launchId,'root');assert.equal(next.publicKey,state.publicKey);assert.equal(next.details,state.details);assert.equal(next.review,state.review);assert.deepEqual(state.signed,canonicalFixture().state.signed);
+});
+test('canonical signed adoption rejects foreign identity, forged signatures, malformed bytes and changed effects without replacing recovery',()=>{
+ const {state,receipt,sign,build,transfer}=canonicalFixture(),original=state.signature;
+ for(const patch of [{id:'foreign'},{launchId:'foreign'},{phase:'buy'},{status:'submitted'},{signature:'forged'},{wire:'invalid!'}]) assert.throws(()=>canonicalSignedReceipt(state,{...receipt,...patch}));
+ const changed=sign(build([{...transfer,data:Buffer.from(transfer.data.map(byte=>byte^1))}]));
+ assert.throws(()=>canonicalSignedReceipt(state,{...receipt,wire:Buffer.from(changed).toString('base64'),signature:cloutPaymentSignature(changed)}));
+ for(const patch of [{creator:'foreign'},{publicKey:'foreign'},{launchId:'foreign'},{review:{...state.review,wire:undefined}}]) assert.throws(()=>canonicalSignedReceipt({...state,...patch},receipt));
+ const invalid=Buffer.from(receipt.wire,'base64');invalid[10]^=1;
+ assert.throws(()=>canonicalSignedReceipt(state,{...receipt,wire:invalid.toString('base64')}));assert.equal(state.signature,original);
+});
