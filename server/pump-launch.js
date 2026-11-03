@@ -539,9 +539,9 @@ export async function submit(input, deps = {}) {
 export async function status(id, signature, broadcast = false, deps = {}) {
   const d = await draft(id),
     saved = await read("signed/" + id + ".json");
+  if(d.flow===STAGED_FLOW) return statusStaged(d,saved,broadcast,stagedDependencies(deps),signature);
   if (!saved || saved.signature !== signature)
     fail("No matching signed launch is saved.", 404);
-  if(d.flow===STAGED_FLOW) return statusStaged(d,saved,broadcast,stagedDependencies(deps));
   if (d.bundle && Array.isArray(d.roles)) return bundleStatus(d, saved, broadcast, deps);
   if (d.bundle) return legacyBundleStatus(d, saved, deps);
   // Pre-bundle single-transaction drafts are v1: track them on chain, never broadcast them.

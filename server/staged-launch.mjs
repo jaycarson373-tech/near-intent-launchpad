@@ -145,41 +145,57 @@ async function claimMint(root,io) {
     fail('This mint has another active launch. Resume its original receipt.',409);
   }
 }
+async function restoreSigned(id,io) {
+  const saved=await io.read('signed/'+id+'.json');
+  if(saved) return saved;
+  const decision=await io.read(decisionKey(id));
+  if(decision?.kind!=='signed') return null;
+  return io.createOnce('signed/'+id+'.json',decision.saved,(a,b)=>a.signature===b.signature);
+}
+async function submissionDecision(d,candidate,io) {
+  const proposed=io.now()>d.expiresAt?{kind:'expired'}:{kind:'signed',saved:candidate};
+  try {
+    return await io.createOnce(decisionKey(d.id),proposed,(a,b)=>a.kind===b.kind&&(a.kind==='expired'||a.saved.signature===b.saved.signature));
+  } catch {
+    const decision=await io.read(decisionKey(d.id));
+    if(!['signed','expired'].includes(decision?.kind)) fail('This launch step could not be reconciled. Keep its signed receipt and retry.',503);
+    return decision;
+  }
+}
 export async function submitStaged(d,input,deps) {
   const io=ioFor(deps),root=await rootFor(d.launchId,io);
   if(!PHASES.includes(d.phase)||typeof input.wire!=='string'||input.wire.length>MAX_LAUNCH_BASE64) fail('Invalid signed launch step. Reload the saved review.');
   const wire=Buffer.from(input.wire,'base64');
   walletSignedLaunchMatches(Buffer.from(d.wire,'base64'),wire);
-  const signature=cloutPaymentSignature(wire),prior=await io.read('signed/'+d.id+'.json');
-  if(prior) {
-    if(prior.signature!==signature) fail('Another signature is already saved. Resume the original receipt.');
-    return statusStaged(d,prior,true,io);
+  const signature=cloutPaymentSignature(wire),prior=await restoreSigned(d.id,io);
+  if(prior) return statusStaged(d,prior,true,io,signature);
+  if(io.now()<=d.expiresAt) {
+    await assertPhaseOpen(d,root,io);
+    await claimMint(root,io);
   }
-  if(io.now()>d.expiresAt) fail('This unsigned review expired. Refresh this step before signing.');
-  await assertPhaseOpen(d,root,io);
-  await claimMint(root,io);
-  if(io.now()>d.expiresAt) fail('This review expired before submission. Refresh only this step.');
   const candidate={id:d.id,flow:STAGED_FLOW,launchId:root.id,phase:d.phase,signature,wire:input.wire,createdAt:io.now()};
-  let decision;
-  try {
-    decision=await io.createOnce(decisionKey(d.id),{kind:'signed',saved:candidate},(a,b)=>a.kind===b.kind&&a.saved.signature===b.saved.signature);
-  } catch {
-    fail('This review was retired or already signed in another tab. Resume its original receipt.',409);
-  }
-  const saved=await io.createOnce('signed/'+d.id+'.json',decision.saved,(a,b)=>a.signature===b.signature);
+  const decision=await submissionDecision(d,candidate,io);
+  // An expired decision can retain late bytes for recovery, but can never authorize a send.
+  const saved=await io.createOnce('signed/'+d.id+'.json',decision.kind==='signed'?decision.saved:candidate,sameId);
   await io.indexPending(saved);
-  return statusStaged(d,saved,true,io);
+  return statusStaged(d,saved,true,io,signature);
 }
 function phaseResult(root,completed,phase) {
   const result={launchId:root.id,phase,signature:completed[phase]?.signature,coin:completed.create?.coin};
   return {status:nextLaunchPhase(root,completed)?'phase-confirmed':'confirmed',...result};
 }
-export async function statusStaged(d,saved,broadcast,deps) {
-  const io=ioFor(deps),root=await rootFor(d.launchId,io),completed=await completedPhases(root,io);
+export async function statusStaged(d,saved,broadcast,deps,requestedSignature) {
+  const io=ioFor(deps);
+  saved ||= await restoreSigned(d.id,io);
+  if(!saved) fail('No signed launch step is saved. Resume submission of the original signed bytes.',404);
+  if(requestedSignature!==undefined&&requestedSignature!==saved.signature) return {status:'canonical-signed',id:d.id,launchId:d.launchId,phase:d.phase,signature:saved.signature,wire:saved.wire};
+  const root=await rootFor(d.launchId,io),completed=await completedPhases(root,io);
   if(completed[d.phase]) {await io.removePending(saved);return phaseResult(root,completed,d.phase);}
   const terminal=await io.read(outcomeKey(d.id));
   if(terminal) return terminal;
   const base={signature:saved.signature,mint:d.mint,launchId:root.id,phase:d.phase,created:!!completed.create};
+  if((await io.read(decisionKey(d.id)))?.kind==='expired')
+    return terminalOutcome(d,saved,{status:'expired',...base,error:'This review expired before submission and was never broadcast. Earlier completed phases remain; refresh only this phase.'},io);
   const observed=await chainStatus(saved,io);
   if(!observed) return {status:'checking',...base};
   return observedPhase(d,saved,{root,completed,base,...observed},broadcast,io);

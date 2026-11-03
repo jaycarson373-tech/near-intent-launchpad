@@ -6,11 +6,14 @@ import {ed25519} from '@noble/curves/ed25519';
 import {prepareStaged,submitStaged,statusStaged} from '../server/staged-launch.mjs';
 import {compileStagedTransaction,stagedAddresses} from '../lib/staged-launch.mjs';
 import {cloutPaymentSignature} from '../lib/launch-signatures.mjs';
+import {compileLaunchV1} from '../lib/launch-wire.mjs';
 
 function fixture({phase='setup',buy=false}={}) {
   const creator=Keypair.generate(),mint=Keypair.generate(),recipient=Keypair.generate().publicKey;
   const root={id:crypto.randomUUID(),root:true,flow:'staged-v1',creator:creator.publicKey.toBase58(),mint:mint.publicKey.toBase58(),name:'Test',symbol:'TEST',feeTreasury:recipient.toBase58(),devBuySolRaw:buy?'10000000':'0',devBuyRaw:'0',creatorFeeBps:30,feeAllocationVersion:2};
-  const tx=compileStagedTransaction(root,[SystemProgram.transfer({fromPubkey:creator.publicKey,toPubkey:recipient,lamports:1})],{blockhash:Keypair.generate().publicKey.toBase58(),lastValidBlockHeight:100});
+  const instructions=[SystemProgram.transfer({fromPubkey:creator.publicKey,toPubkey:recipient,lamports:1})];
+  const latest={blockhash:Keypair.generate().publicKey.toBase58(),lastValidBlockHeight:100};
+  const tx=compileStagedTransaction(root,instructions,latest);
   const decoded=getTransactionDecoder().decode(tx.serialize());
   const wire=Buffer.from(getTransactionEncoder().encode({...decoded,signatures:{...decoded.signatures,[root.creator]:ed25519.sign(decoded.messageBytes,creator.secretKey.subarray(0,32))}})).toString('base64');
   const id=crypto.randomUUID(),slot=`staged/attempts/${root.id}/${phase}/first.json`;
@@ -38,7 +41,10 @@ function fixture({phase='setup',buy=false}={}) {
       sendRawTransaction:async(bytes,options)=>{assert.equal(data.get('signed/'+id+'.json')?.signature,signature);assert.equal(options.skipPreflight,false);state.sends.push(Buffer.from(bytes).toString('base64'));return signature;},
     },
   };
-  return {root,d,saved,signature,wire,state,data,io};
+  const alternate=compileLaunchV1({payer:creator.publicKey,latest,instructions,priorityFeeLamports:1401n});
+  const alternateDecoded=getTransactionDecoder().decode(alternate.serialize());
+  const alternateWire=Buffer.from(getTransactionEncoder().encode({...alternateDecoded,signatures:{...alternateDecoded.signatures,[root.creator]:ed25519.sign(alternateDecoded.messageBytes,creator.secretKey.subarray(0,32))}})).toString('base64');
+  return {root,d,saved,signature,wire,alternateWire,state,data,io};
 }
 const prepareInput=f=>({flow:'staged-v1',launchId:f.root.id,creator:f.root.creator,mint:f.root.mint,feeAllocationVersion:2});
 
@@ -63,7 +69,7 @@ test('refresh retires an unsigned expired attempt before allowing a successor',a
   assert.notEqual(a.id,f.d.id);assert.equal(a.id,b.id);
   assert.equal(f.data.get('staged/decisions/'+f.d.id+'.json').kind,'expired');
   f.state.now=f.d.expiresAt-1;
-  await assert.rejects(submitStaged(f.d,{wire:f.wire},f.io),/retired|another tab/);
+  assert.equal((await submitStaged(f.d,{wire:f.wire},f.io)).status,'expired');
   assert.equal(f.state.sends.length,0);
 });
 test('a signature that wins retirement fencing blocks replacement even if signed outbox write was interrupted',async()=>{
@@ -123,4 +129,38 @@ test('another tab completing a phase prevents duplicate broadcast and returns ca
   const result=await statusStaged(f.d,f.saved,true,f.io);
   assert.equal(result.status,'phase-confirmed');assert.equal(result.signature,'canonical');
   assert.equal(f.state.sends.length,0);
+});
+test('a slow first approval records a never-broadcast expiry and permits only the current phase to retry',async()=>{
+  const f=fixture({phase:'buy',buy:true});f.state.now=f.d.expiresAt+1;
+  const result=await submitStaged(f.d,{wire:f.wire},f.io);
+  assert.equal(result.status,'expired');assert.equal(result.created,true);
+  assert.equal((await statusStaged(f.d,f.saved,true,f.io)).status,'expired');
+  assert.equal(f.state.sends.length,0);assert.equal(f.state.simulations,0);
+  const next=await prepareStaged({...prepareInput(f),previousId:f.d.id},f.io);
+  assert.notEqual(next.id,f.d.id);assert.equal(next.phase,'buy');assert.equal(next.coin.mint,f.root.mint);
+});
+test('a late resubmission recovers an accepted signature after an interrupted outbox write',async()=>{
+  const f=fixture();f.state.now=f.d.expiresAt+1;f.state.slot=99;
+  f.data.set('staged/decisions/'+f.d.id+'.json',{kind:'signed',saved:f.saved});
+  assert.equal((await submitStaged(f.d,{wire:f.wire},f.io)).status,'checking');
+  assert.equal(f.data.get('signed/'+f.d.id+'.json').wire,f.wire);
+  assert.equal(f.data.has('staged/outcomes/'+f.d.id+'.json'),false);
+  assert.equal(f.state.sends.length,0);
+});
+test('competing valid wallet signatures recover the canonical bytes on both submit and status',async()=>{
+  const f=fixture();f.state.slot=99;
+  assert.equal((await submitStaged(f.d,{wire:f.wire},f.io)).status,'checking');
+  const conflict=await submitStaged(f.d,{wire:f.alternateWire},f.io);
+  assert.equal(conflict.status,'canonical-signed');assert.equal(conflict.signature,f.signature);assert.equal(conflict.wire,f.wire);
+  assert.equal(conflict.id,f.d.id);assert.equal(conflict.launchId,f.root.id);assert.equal(conflict.phase,f.d.phase);
+  const alternateSignature=cloutPaymentSignature(Buffer.from(f.alternateWire,'base64'));
+  assert.notEqual(alternateSignature,f.signature);
+  assert.deepEqual(await statusStaged(f.d,f.saved,false,f.io,alternateSignature),conflict);
+  assert.equal(f.state.sends.length,0);
+});
+test('status restores the accepted signature from its decision if the outbox write was interrupted',async()=>{
+  const f=fixture();f.state.slot=99;
+  f.data.set('staged/decisions/'+f.d.id+'.json',{kind:'signed',saved:f.saved});
+  assert.equal((await statusStaged(f.d,null,false,f.io,f.signature)).status,'checking');
+  assert.equal(f.data.get('signed/'+f.d.id+'.json').signature,f.signature);
 });

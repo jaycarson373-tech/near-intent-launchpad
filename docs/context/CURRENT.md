@@ -1,5 +1,13 @@
 # near-intent-launchpad: current context
 
+## Phantom launch approval fix — November 3, 2026 (Codex)
+
+Owner approved separate confirmed approvals: setup, creation plus immutable fees, then optional atomic SOL conversion plus initial buy. New `staged-v1` launches simulate each standalone transaction against settled state and submit exact signed bytes through RPC preflight. v1 is never sent to Jito; historical signed bundles retain their original recovery. The created coin is published after verified creation and remains live if the optional buy fails or is canceled. Live-curve quoting, existing-asset protection, fee allocation v2 and reward readiness remain enforced.
+
+Recovery retains a single immutable root/mint and canonical attempt per phase. A slow approval that arrives after review expiry gets a durable never-broadcast terminal result; accepted signatures with uncertain outcomes cannot be replaced. Conflicting valid signatures from two tabs reconcile to the server's exact canonical signed bytes after browser validation. Independent review identified both cases and regression tests cover them.
+
+Owner instructed “ignore CI's just merge”; existing workflow configuration is unchanged. Local verification and review precede publication. No owner-wallet signing or funded acceptance has been performed for this flow; removal of the actual Phantom warning must still be checked in the wallet. See the latest section in RELEASE_NEAR_SOLANA.md for acceptance evidence.
+
 ## Owner correction — holder beneficiaries and CA display (2026-11-02/03)
 
 Owner clarified: INTENT's own creator fees are 100% for INTENT holders. New community launches allocate 80% to their own holders and 20% to INTENT holders. The earlier 65/35 is a timing reserve within each holder allocation, not a competing beneficiary split; it is now explained only in the small, collapsed reserve FAQ. Header displays the complete supplied CA on one copyable line with a neutral CA label, no pending badge or deployment claim. Actual onchain mint verification remains mandatory in the worker.

@@ -11,7 +11,7 @@
 - Existing `docs/TODO-phantom-review.md` records fees-alone AccountNotInitialized; `lib/launch-bundle.mjs` builds the three dependent parts. Phantom documentation distinguishes this from a new-domain warning.
 - Offline existing SDK fixture: creation+fees v1 1449 bytes; conversion+buy v1 1398 bytes. v1 is never submitted to Jito. Standalone RPC simulation and 21-instruction headroom remain required.
 - Wallet signs first; browser mint signs creation only. Preserve Lighthouse changes, exact reviewed effects, network/spending limits, signatures and original wires.
-- No funded tests, secret reading, production deployment, default-branch writes, or installing new dependencies. Existing lockfile install was approved and completed with scripts disabled.
+- No funded tests, secret reading, direct default-branch writes, or installing new dependencies. Existing lockfile install was approved and completed with scripts disabled. Owner subsequently instructed “ignore CI's just merge”; normal PR merge and its existing automatic deployments are authorized, without changing CI configuration or bypassing protections.
 - Independent integration fit: `staged_flow_fit`, requested gpt-6.1-sol/medium, actual model unreported. Confirmed live-curve requoting, durable attempts and immutable creation receipt are necessary. One final independent branch review after implementation.
 
 ## Task 1: Phase transactions and verification
@@ -62,4 +62,4 @@ Files: `src/use-solana-launch.ts`, `src/App.tsx`, relevant pure recovery tests.
 
 - [ ] Run full npm tests, each tsconfig `tsc --noEmit`, lint and build on final candidate. Check legacy recovery and fee-allocation tests.
 - [ ] Independent review of final source diff and focused recheck of confirmed defects. Update existing Phantom/release/context docs with code behavior and honest live-testing limits.
-- [ ] Inspect CI before publication: current PR workflow runs ubuntu-latest even for drafts. Resolve policy gate without triggering hosted jobs; do not deploy/merge to auto-deploying main without authority. Publish dedicated branch and draft PR when permitted.
+- [ ] Inspect CI before publication, publish the dedicated branch/PR and merge under the owner's explicit instruction after local acceptance and review. Leave workflow configuration unchanged, never bypass protections, and verify both automatic deployment receipts.
