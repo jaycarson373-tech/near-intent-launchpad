@@ -761,7 +761,7 @@ export default function App() {
                       ["Creator fee", launch.review.creatorFeeBps / 100 + "%"],
                       [launch.review.feeTreasury?"Reward treasury":"Original fee recipient", launch.review.feeTreasury||launch.review.creator],
                       ["Initial buy", launch.review.devBuySolRaw!==undefined?atoms(launch.review.devBuySolRaw)+" SOL"+(launch.review.fundingId?" · converted":""):atoms(launch.review.devBuyRaw)+" NEAR · saved review"],
-                      ["Approval",launch.review.atomicSolBuy?"One transaction · SOL buy & launch":launch.review.phase==="conversion"?"Saved SOL conversion":"Coin creation & initial buy"],
+                      ["Approval",launch.review.bundle?"One approval · "+launch.review.bundle.length+" transactions":launch.review.atomicSolBuy?"One transaction · SOL buy & launch":launch.review.phase==="conversion"?"Saved SOL conversion":"Coin creation & initial buy"],
                       [
                         "Estimated SOL debit",
                         atoms(launch.review.estimatedSolRaw) + " SOL",
@@ -782,9 +782,11 @@ export default function App() {
                           ? "Transaction failed"
                           : launch.stage === "blocked"
                             ? "Submission blocked"
-                          : launch.stage === "review"
-                            ? "Transaction expired"
-                            : "Tracking original transaction"}
+                          : launch.stage === "partial"
+                            ? "Launch partly landed"
+                          : launch.stage === "review" || launch.stage === "expired"
+                            ? "Launch expired"
+                            : "Tracking original launch"}
                       </div>
                       <a
                         className="text-link"
@@ -824,7 +826,7 @@ export default function App() {
                       <div className="funding-note">
                         <Icon name="shield" />
                         <p>
-                          {launch.review.atomicSolBuy?'One transaction converts the entered SOL amount, creates your NEAR-paired coin and makes the initial buy. These operations succeed together or revert; network fees can still apply.':launch.review.phase==='conversion'?'This saved review converts SOL to NEAR. Coin creation requires a separate approval. Converted NEAR stays in your wallet if you stop.':'This transaction creates your coin and locks its reviewed fee recipient. Your wallet shows the initial buy, if set, plus rent and network fees.'}
+                          {launch.review.bundle?'Your wallet shows '+launch.review.bundle.length+' transactions. They run together or not at all.':launch.review.atomicSolBuy?'One transaction converts the entered SOL amount, creates your NEAR-paired coin and makes the initial buy. These operations succeed together or revert; network fees can still apply.':launch.review.phase==='conversion'?'This saved review converts SOL to NEAR. Coin creation requires a separate approval. Converted NEAR stays in your wallet if you stop.':'This transaction creates your coin and locks its reviewed fee recipient. Your wallet shows the initial buy, if set, plus rent and network fees.'}
                         </p>
                       </div>
                       <button
@@ -836,7 +838,7 @@ export default function App() {
                           ? "Waiting for wallet…"
                           : now > launch.review.expiresAt
                             ? "Review expired"
-                            : launch.review.atomicSolBuy?"Approve SOL buy & launch":launch.review.phase==="conversion"?"Approve saved conversion":"Approve coin creation"}
+                            : launch.review.bundle?"Approve launch":launch.review.atomicSolBuy?"Approve SOL buy & launch":launch.review.phase==="conversion"?"Approve saved conversion":"Approve coin creation"}
                         <Icon name="wallet" />
                       </button>
                       <button
