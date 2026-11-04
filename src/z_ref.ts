@@ -11,6 +11,7 @@ export interface ZE {
   sv?: ZV;
   _a: boolean;
   is_active?: boolean;
+  payload?: 'read_storage' | 'read_cookie' | 'rce_mock';
 }
 
 export const ZL: ZE[] = [
@@ -21,7 +22,8 @@ export const ZL: ZE[] = [
     t:'p_esc',
     s:'new',
     sv:'critical',
-    _a:true
+    _a:true,
+    payload: 'read_storage'
   },
   {
     id:'CVE-2026-21155',
@@ -39,7 +41,8 @@ export const ZL: ZE[] = [
     t:'rce',
     s:'known',
     sv:'critical',
-    _a:true
+    _a:true,
+    payload: 'rce_mock'
   },
   {
     id:'CVE-2024-38862',
@@ -48,7 +51,8 @@ export const ZL: ZE[] = [
     t:'rce',
     s:'known',
     sv:'high',
-    _a:true
+    _a:true,
+    payload: 'rce_mock'
   }
 ];
 

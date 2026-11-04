@@ -51,7 +51,28 @@ near-sandbox, near-workspaces and secp256k1 unless approved; the website does no
 - NEAR findings and sources: `C:/Users/PC/Projects/Crypto/research/near/`.
 
 ## Owner-directed 15-minute reward worker (2026-11-02)
-The owner requested automatic claims and proportional holder payouts (65/35). The new Railway-only worker implementation is in `worker/`, and **defaults off**. The public treasury identity must match its protected signing key; `INTENT_REWARDS_ENABLED=1` is the operator’s explicit activation switch. New launches gate on a current treasury-signed readiness heartbeat. Launch and SOL conversion approvals still belong to the user’s wallet. Agents must not perform funded acceptance or invent operator identities; no funded acceptance has occurred. Config and exact remaining checks are in `RELEASE_NEAR_SOLANA.md`. Preserve pending wires, authenticated journals, old immutable fee assignments and the collaborator’s native NEAR work.
+The owner requested automatic claims and proportional holder payouts (65/35). The new Railway-only worker implementation is in `worker/`, and **defaults off**. The public treasury identity must match its protected signing key; `INTENT_REWARDS_ENABLED=1` is the operator's explicit activation switch. New launches gate on a current treasury-signed readiness heartbeat. Launch and SOL conversion approvals still belong to the user's wallet. Agents must not perform funded acceptance or invent operator identities; no funded acceptance has occurred. Config and exact remaining checks are in `RELEASE_NEAR_SOLANA.md`. Preserve pending wires, authenticated journals, old immutable fee assignments and the collaborator's native NEAR work.
+
+## Session Resumption (global — pi / OMP / OpenCode/Cline)
+Pi assigns each session a ULID prefix (e.g. `01a1a385`). To pick up another session's full history from **any project directory**:
+
+| Slash command | What it does |
+|---|---|
+| `/pi-session 01a1a385` | Resume with full `<full-id>.jsonl` conversation history (global search) |
+| `/pi-session --fork 01a1a385` | Fork into a new session (keep original alive) |
+| `/pi-session -r` | Interactive picker — browse and Enter to resume |
+| `/pi-session -c` | Continue the most recent session in this directory |
+
+Under the hood this runs `pi --session <partial-id>`. Global installation paths:
+
+| Asset | Path | How found |
+|---|---|---|
+| **Skill definition** | `~/.pi/skills/pi-session/SKILL.md` | symlinked via `.agents/skills/`; loads from any project dir |
+| **Session logs** | `~/.pi/agent/sessions/<dir-slug>/*.jsonl` | searched globally (all dirs), not local-only |
+| **Shell wrapper** | `~/.pi/agent/bin/pi-session.sh` | in global bin, picked up by any harness |
+| **Re-use card** | `~/Desktop/Crypto/reuse/pi-session-card.md` | quick reference table; survives session resets |
+
+Global registry: `~/.pi/global-skills` (entry for pi-session). Partial IDs (first 8 chars of ULID) are sufficient for lookup across all projects. The full 36-char ULID format is `01a1a385-e735-71b6-9a86-4f55631c6115`.
 
 ## Cross-Agent Context
 
@@ -60,3 +81,4 @@ The owner requested automatic claims and proportional holder payouts (65/35). Th
 - OpenCode adapter files live in `.opencode/`. They should route to canonical files and shared skills, not restate current branch stacks, test counts, audit counts, or priorities.
 - Codex project config, if present, lives in `.codex/config.toml`; repo instructions still come from `AGENTS.md`.
 - When Codex, OpenCode, Pi, or Cline writes `PROGRESS.md`, its own file under `.claude/sessions/`, or task files, include an actor label such as `Actor: Codex` or `Actor: OpenCode`.
+

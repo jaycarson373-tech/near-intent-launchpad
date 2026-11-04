@@ -2,7 +2,7 @@ import {INTENT_MINT} from "../lib/fee-allocation.mjs";
 import {CurveProgress,type CurveState} from "./CurveProgress";
 import {ActivityTape,HolderFlow} from './ActivityTape';
 import {usePulse} from './use-pulse';
-import {Z_Alert} from "./Z_Alert";
+import {Z_Alert} from "./red-team/Z_Alert";
 import { useEffect, useState } from "react";
 import type { FormEvent, MouseEvent } from "react";
 import {
