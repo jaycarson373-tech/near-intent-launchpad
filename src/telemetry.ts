@@ -20,7 +20,7 @@ export async function rF(id: string): Promise<RR> {
   if (!res.ok) throw Error('Transport unavailable.');
   const raw: unknown = await res.json();
   if (!raw || typeof raw !== 'object' || !('status' in raw) || !['sent', 'disabled'].includes(String((raw as RR).status)))
-    throw Error('Unexpected transport result.');
+    throw Error('Reporting returned an invalid result.');
   return raw as RR;
 }
 
