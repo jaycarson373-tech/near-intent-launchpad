@@ -326,7 +326,6 @@ export default function App() {
       <a className="skip-link" href="#main">
         Skip to content
       </a>
-
       <header className="header">
         <div className="header-inner">
           <a className="brand" href="/" onClick={(e) => link(e, "/")}>
